@@ -1,0 +1,28 @@
+# Foundry
+cache/
+out/
+
+# Dependencies
+lib/
+node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Rust / Cargo
+target/
+contracts/stylus/risk_engine/target/
+**/*.rs.bk
+Cargo.lock
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
