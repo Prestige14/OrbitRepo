@@ -6,10 +6,20 @@ out/
 lib/
 node_modules/
 
-# Environment
+# Environment & Secrets
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+secrets/
+
+# Internal Hackathon Briefs, Documents & PDFs
+*.pdf
+*SRS*
+*srs*
+*terms*
+docs/internal/
 
 # Rust / Cargo
 target/
