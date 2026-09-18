@@ -1,44 +1,37 @@
-# OrbitRepo 🪐
+# OrbitRepo
 
-### Fixed-Term Repo Market for Tokenized Equities with an Arbitrum Stylus Dynamic Risk Engine
+### Fixed-Term Repo Protocol for Tokenized Equities with an Arbitrum Stylus Dynamic Risk Engine
 
-> **Built for Arbitrum Open House Singapore Online Buildathon 2026**  
-> **Target Deployment:** Robinhood Chain Testnet & Arbitrum Sepolia  
-> **Repository:** [github.com/Prestige14/OrbitRepo](https://github.com/Prestige14/OrbitRepo)
+OrbitRepo is a decentralized fixed-term repurchase agreement (repo) protocol designed for tokenized equities and real-world assets (RWAs) on Arbitrum Orbit chains (Robinhood Chain) and Arbitrum Sepolia.
 
----
-
-## 0. Elevator Pitch
-
-> *"Aave gives every collateral asset the same flat 75% LTV. OrbitRepo dynamically recalculates a safe, tailored LTV for each tokenized stock every night based on its actual realized volatility — a computation that is only economically feasible on-chain thanks to Arbitrum Stylus."*
+Unlike generic lending pools (e.g., Aave, Morpho) that apply uniform, static loan-to-value (LTV) ratios across diverse asset classes, OrbitRepo dynamically recalculates collateral haircuts and maximum LTVs on-chain using a Parametric Value-at-Risk (VaR) risk engine implemented in **Arbitrum Stylus (Rust WASM)**.
 
 ---
 
-## 1. Problem Statement
+## 1. Motivation & Market Gap
 
-### A. TradFi Context
-The Wall Street Repurchase Agreement (Repo) market clears an average of **over $4.3 – $4.4 trillion** in daily transactions (SIFMA data) — serving as the backbone of global short-term institutional funding. Institutions rely on repo to secure immediate cash liquidity without liquidating equity holdings, avoiding taxable capital gains events and retaining strategic market exposure.
+### Institutional Precedent
+The United States Repurchase Agreement (Repo) market clears over **$4.4 trillion** in daily transactions (SIFMA). Institutional market participants utilize repo facilities to access liquidity without disposing of underlying assets—avoiding capital gains realizations while maintaining strategic exposure.
 
-### B. The Structural Gap in DeFi & Robinhood Chain
-When Robinhood Chain launched on mainnet, it arrived with native DeFi lending primitives out-of-the-box (powered by Morpho under the *Robinhood Earn* product), and Stock Tokens are designed to be pledged, lent, and traded. 
+### Limitations of Generic DeFi Lending
+Robinhood Chain natively bundles tokenized equities alongside baseline lending primitives. However, conventional lending pool architectures present two structural challenges when applied to single-stock equities:
 
-However, existing lending pools exhibit two critical limitations:
-1. **Product Structure**: Generic DeFi lending pools are open-ended with floating, utilization-based APYs. Institutional repo is always **fixed-term** (Overnight, 7-day, 30-day). A fixed-term structure gives Liquidity Providers (LPs) predictable, bond-like yield profiles rather than erratic floating rates.
-2. **Static Risk Models**: Existing pools rely on static LTV and liquidation threshold parameters that rarely change. In crypto-native assets, this is already risky; for **individual stocks**, it is catastrophic due to:
-   - Idiosyncratic volatility differing drastically between equities (e.g., AAPL vs. high-beta tech vs. index ETFs).
-   - Overnight market gap risk (earnings surprises can trigger sudden 10–25% price gaps between trading sessions).
-   
-A single flat LTV "taxes" low-volatility assets with excessive haircuts while severely under-collateralizing volatile stocks, putting protocol solvency at risk.
+1. **Floating vs. Fixed Duration**: Generic lending markets utilize open-ended pools with utilization-driven floating interest rates. Institutional liquidity providers require fixed-term horizons (Overnight, 7-Day, 30-Day) that provide deterministic yield profiles akin to short-duration fixed-income securities.
+2. **Static Risk Parameters**: Standard protocols infrequently update collateral factors through governance votes. For equities, static parameters fail to account for:
+   - Differing realized volatilities across single-stock tickers (e.g., AAPL vs. high-beta growth equities).
+   - Market session gap risks, where corporate announcements and earnings releases induce 10%–25% price gaps between market closures.
+
+A flat LTV either over-burdens liquid collateral with punitive haircuts or severely under-collateralizes volatile equities, creating systemic protocol insolvency risks.
 
 ---
 
-## 2. The Solution: OrbitRepo Architecture
+## 2. Architecture
 
-OrbitRepo is a dual-sided decentralized repo protocol tailored for tokenized US equities:
+OrbitRepo decouples capital allocation from risk assessment:
 
-- **Borrowers** pledge Stock Tokens (e.g., `tAAPL`, `tNVDA`), select a fixed term (Overnight, 7-day, or 30-day), and draw stablecoin liquidity up to a **dynamic Max LTV calculated in real-time by the Stylus Risk Engine**.
-- **Liquidity Providers (LPs)** deposit stablecoins into the pool, earning locked-in term yields (repo rate) with predictable returns.
-- **At maturity**, borrowers repay principal plus the locked fixed interest to reclaim collateral. If under-collateralized or expired, positions are permissionlessly liquidated by keepers.
+- **Borrowers** deposit whitelisted equity tokens (e.g., `tAAPL`, `tNVDA`), choose a fixed duration (1, 7, or 30 days), and draw stablecoin liquidity up to a dynamic LTV determined at execution by the Stylus Risk Engine.
+- **Liquidity Providers (LPs)** supply stablecoins (USDC) to a dedicated pool, locking in predictable fixed repo interest.
+- **At Maturity**, the position must be repaid (principal plus fixed interest) to retrieve collateral. If current valuation violates the maintenance margin or maturity lapses, the position enters permissionless liquidation.
 
 ```
  Borrower                         Liquidity Provider
@@ -49,7 +42,7 @@ OrbitRepo is a dual-sided decentralized repo protocol tailored for tokenized US 
 │                   RepoVault.sol                 │
 │  - openPosition(asset, amount, term)            │
 │  - repay(positionId)                            │
-│  - liquidate(positionId)   ◄── Keeper (Anyone)  │
+│  - liquidate(positionId)   ◄── Keeper / Any EOA │
 └───────────────┬───────────────────┬─────────────┘
                 │ getMaxLTV()       │ price feed
                 ▼                   ▼
@@ -72,92 +65,105 @@ OrbitRepo is a dual-sided decentralized repo protocol tailored for tokenized US 
 
 ## 3. Dynamic Risk Engine (Stylus Parametric VaR)
 
-### Why Stylus (Rust WASM) Instead of Solidity?
-Calculating daily logarithmic returns $r_t = \ln(P_t / P_{t-1})$, square roots, and looping over rolling price buffers in standard EVM Solidity requires expensive storage read iterations (`SLOAD`) and is prone to numerical overflow. 
+### Stylus MultiVM Justification
+Evaluating realized volatility, log returns, and square roots over historical price buffers in Solidity is computationally prohibitive due to EVM storage read costs (`SLOAD`) and fixed-point math overhead. 
 
-**Arbitrum Stylus (Rust $\rightarrow$ WASM)** delivers **10–100x cheaper compute** and **100–500x cheaper memory**, enabling up to **86.6% gas savings** for repetitive risk computations while remaining synchronously callable from Solidity via MultiVM.
+Compiled to WebAssembly via **Arbitrum Stylus**, the `RiskEngine` achieves:
+- Up to **86.6% reduction in transaction execution costs** compared to standard EVM implementations.
+- Sub-second mathematical throughput via native integer Babylonian square roots.
+- Direct synchronous invocation from Solidity contracts via MultiVM interoperability.
 
-### Mathematical Formulation:
-1. **Daily Log Return:**  
+### Mathematical Formulation
+1. **Periodic Return:**  
    $$r_t \approx \frac{|P_t - P_{t-1}|}{P_{t-1}}$$
-2. **Realized Variance ($N$ observations):**  
-   $$\sigma^2 = \frac{1}{N} \sum (r_t)^2$$
+2. **Realized Variance:**  
+   $$\sigma^2 = \frac{1}{N} \sum_{i=1}^N (r_i)^2$$
 3. **Daily Realized Volatility:**  
    $$\sigma_{\text{daily}} = \sqrt{\sigma^2}$$
-4. **Parametric VaR Haircut (Confidence $\alpha = 99\%$, $z_\alpha = 2.33$):**  
+4. **Parametric VaR Haircut ($\alpha = 99\%$, $z_\alpha = 2.33$):**  
    $$\text{Haircut} = z_\alpha \times \sigma_{\text{daily}} \times \sqrt{t}$$
-5. **Protocol Clamped Max LTV:**  
+5. **Calibrated Max LTV:**  
    $$\text{Max LTV} = \text{clamp}(1 - \text{Haircut}, 20\%, 80\%)$$
 
-### Numerical Comparison (Parametric VaR vs. Flat LTV):
-| Asset Profile | Daily Volatility ($\sigma$) | Duration ($t$) | VaR Haircut | OrbitRepo Max LTV | Traditional Flat LTV |
+### Dynamic LTV Calibration Sample
+| Asset | Daily Volatility ($\sigma_{\text{daily}}$) | Term ($t$) | VaR Haircut | OrbitRepo Max LTV | Standard DeFi LTV |
 |---|---|---|---|---|---|
-| **Volatile Stock (`tAAPL`)** | 3.2% / day | Overnight (1 Day) | 7.5% | **80.0%** (Capped) | 75.0% |
-| **Volatile Stock (`tAAPL`)** | 3.2% / day | **30 Days** | 40.8% | **59.2%** (Risk-Adjusted) | 75.0% *(Insolvency Risk!)* |
+| **Volatile Equity (`tAAPL`)** | 3.2% / day | 1 Day (Overnight) | 7.5% | **80.0%** (Capped) | 75.0% |
+| **Volatile Equity (`tAAPL`)** | 3.2% / day | **30 Days** | 40.8% | **59.2%** (Risk-adjusted) | 75.0% *(Insolvency Risk)* |
 | **Broad-Market ETF (`tSPY`)** | 1.1% / day | 30 Days | 15.3% | **80.0%** (Capped) | 75.0% *(Capital Inefficient)* |
 
-*Notice the 30-day row: OrbitRepo automatically contracts Max LTV to 59.2% for volatile single equities to account for earnings gap risks, while allowing stable index ETFs the full 80.0% ceiling.*
+---
+
+## 4. Contract Specifications
+
+- [`RepoVault.sol`](contracts/solidity/RepoVault.sol): Manages the full position lifecycle, validates oracle staleness, locks collateral, and executes permissionless liquidations with a 500 bps maintenance buffer.
+- [`LiquidityPool.sol`](contracts/solidity/LiquidityPool.sol): ERC-4626-inspired stablecoin reserve managing LP shares, capital disbursements, and interest accrual.
+- [`RiskEngine (lib.rs)`](contracts/stylus/risk_engine/src/lib.rs): Rust contract compiled to WASM responsible for historical price caching and Parametric VaR evaluations.
+- [`MockStockToken.sol`](contracts/solidity/mocks/MockStockToken.sol): Simulation ERC-20 equity contracts with faucet capabilities.
+- [`MockPriceOracle.sol`](contracts/solidity/mocks/MockPriceOracle.sol): Chainlink AggregatorV3 interface emulator with on-chain price override hooks for liquidation demonstrations.
 
 ---
 
-## 4. Smart Contract Architecture
-
-- [`RepoVault.sol`](contracts/solidity/RepoVault.sol): Core contract managing fixed-term positions, custodying equity collateral, enforcing dynamic Max LTV, and executing permissionless liquidations with a 500 bps maintenance margin buffer.
-- [`LiquidityPool.sol`](contracts/solidity/LiquidityPool.sol): USDC liquidity pool with share-based accounting that disburses capital to `RepoVault` and compounds fixed repo interest back to LPs.
-- [`RiskEngine (lib.rs)`](contracts/stylus/risk_engine/src/lib.rs): Arbitrum Stylus Rust contract implementing rolling price buffers, Babylonian integer square roots, and Parametric VaR logic.
-- [`MockStockToken.sol`](contracts/solidity/mocks/MockStockToken.sol): Simulation ERC-20 tokens representing tokenized equity (`tAAPL`, `tNVDA`) with public faucet access.
-- [`MockPriceOracle.sol`](contracts/solidity/mocks/MockPriceOracle.sol): Chainlink AggregatorV3 emulator equipped with on-the-fly price override functions for live judge demonstrations.
-
----
-
-## 5. Getting Started & Verification
+## 5. Deployment & Execution Guide
 
 ### Prerequisites
 - [Foundry](https://getfoundry.sh/) (`forge`, `cast`)
-- Rust & Cargo with `wasm32-unknown-unknown` target installed
-- `cargo-stylus` (v0.6.3+)
-- Node.js (v20+) & npm
+- Rust toolchain (`wasm32-unknown-unknown` target)
+- `cargo-stylus` CLI (v0.6.3+)
+- Node.js (v20+)
 
-### A. Run Solidity Tests (Foundry)
+### Automated On-Chain Deployment (Arbitrum Sepolia)
+1. Copy the environment template:
+   ```bash
+   cp .env.example .env
+   ```
+2. Set your testnet private key inside `.env`:
+   ```env
+   PRIVATE_KEY=your_private_key_without_0x
+   ARBITRUM_SEPOLIA_RPC=https://sepolia-rollup.arbitrum.io/rpc
+   ```
+3. Run the broadcast deployment script:
+   ```bash
+   forge script script/Deploy.s.sol --rpc-url https://sepolia-rollup.arbitrum.io/rpc --broadcast
+   ```
+   *The script automatically logs deployed addresses and exports configuration directly into `frontend/src/contracts/addresses.json`.*
+
+### Running Test Suites
 ```bash
+# Execute Solidity tests with full execution traces
 forge test -vvv
-```
-*Result: 6/6 unit tests pass, verifying dynamic LTV differentiation, full loan lifecycle, price drop liquidations, and oracle staleness rejection.*
 
-### B. Verify Arbitrum Stylus WASM Contract
-```bash
+# Verify Stylus WASM contract against Arbitrum Sepolia RPC
 cd contracts/stylus/risk_engine
 cargo stylus check --endpoint https://sepolia-rollup.arbitrum.io/rpc
 ```
-*Result: WASM contract compiles cleanly into a lightweight 14.9 KiB binary ready for deployment on Arbitrum Sepolia.*
 
-### C. Run Local Frontend Dashboard
+### Local Dashboard Setup
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Open `http://localhost:5173` in your browser.
+Navigate to `http://localhost:5173`.
 
 ---
 
-## 6. Frontend Dashboard Features
+## 6. Frontend Interface Features
 
-1. **Borrower Portal:** Deposit tokenized equities, select fixed terms (1, 7, 30 days), and observe the live Max LTV computed dynamically by the Stylus Risk Engine.
-2. **Liquidity Provider Portal:** Supply USDC to earn predictable fixed repo yields with real-time share price growth.
-3. **Live Crisis Simulator (Pitch Demo Mode):** Interactive tool designed for judges to simulate sudden earnings shocks (-25% to -45%), witness the position health gauge shift to `CRITICAL / LIQUIDATABLE`, and execute a 1-click keeper liquidation bounty.
-4. **Instant Faucet:** Single-click dispenser for testnet `tAAPL`, `tNVDA`, and `USDC`.
+- **Repo Borrower Terminal**: Deposit tokenized equities, select fixed terms (1, 7, 30 days), and observe the real-time calculated Max LTV.
+- **Liquidity Provider Interface**: Supply stablecoin liquidity and review fixed-term yield growth.
+- **Stress-Testing & Keeper Panel**: Simulate market gap drops (-15% to -45%) to inspect position health changes and test permissionless keeper liquidations.
+- **Wallet Connectivity**: Native injected wallet integration (MetaMask, Rabby) with automatic chain validation for Arbitrum Sepolia (`421614`).
 
 ---
 
-## 7. Hackathon Criteria Alignment
+## 7. Buildathon Evaluation Alignment
 
-- **Ecosystem Alignment (Terms & Conditions Clause 6.2):** Built specifically for tokenized equity on **Robinhood Chain** (qualifying directly for the dedicated Robinhood Chain prize allocation).
-- **Use of Arbitrum Technology:** Authentic integration of **Arbitrum Stylus MultiVM**, using Rust for heavy mathematical operations that are cost-prohibitive in standard Solidity.
-- **Smart Contract Quality:** Follows checks-effects-interactions, reentrancy guards, trust-minimized non-upgradeable architecture, oracle staleness validation, and 100% test coverage in Foundry.
-- **Novelty & Impact:** Bridges the massive $4.4T/day TradFi repo market to tokenized equities with on-chain dynamic risk parameters.
+- **Ecosystem Focus (Terms & Conditions Clause 6.2)**: Specifically architected for tokenized equities on **Robinhood Chain** (qualifies for reserved prize allocations).
+- **Arbitrum Stylus Integration**: Practical, non-cosmetic usage of Stylus MultiVM for computationally intensive risk algorithms.
+- **Contract Robustness**: Implements checks-effects-interactions, reentrancy guards, oracle freshness assertions, and 100% passing Foundry test suites.
 
 ---
 
 ## License
-MIT License. Built for the Arbitrum Open House Singapore Online Buildathon 2026.
+MIT License.
