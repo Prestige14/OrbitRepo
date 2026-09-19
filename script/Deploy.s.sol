@@ -23,14 +23,23 @@ contract DeployScript is Script {
 
     function run() external {
         uint256 deployerPrivateKey;
-        try vm.envUint("PRIVATE_KEY") returns (uint256 key) {
-            deployerPrivateKey = key;
+        try vm.envBytes32("PRIVATE_KEY") returns (bytes32 key) {
+            deployerPrivateKey = uint256(key);
         } catch {
-            deployerPrivateKey = uint256(keccak256(abi.encodePacked("orbitrepo.local.test.deployer.key")));
+            try vm.envUint("PRIVATE_KEY") returns (uint256 key) {
+                deployerPrivateKey = key;
+            } catch {
+                deployerPrivateKey = uint256(keccak256(abi.encodePacked("orbitrepo.local.test.deployer.key")));
+            }
         }
 
         address deployer = vm.addr(deployerPrivateKey);
         console.log("Deployer:", deployer);
+        console.log("Balance: ", deployer.balance);
+
+        if (block.chainid != 31337 && deployer.balance == 0) {
+            console.log("WARNING: Deployer account has 0 ETH on chain ID:", block.chainid);
+        }
 
         vm.startBroadcast(deployerPrivateKey);
 
