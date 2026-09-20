@@ -2,7 +2,7 @@
 
 ### Fixed-Term Repo Protocol for Tokenized Equities with an Arbitrum Stylus Dynamic Risk Engine
 
-OrbitRepo is a decentralized fixed-term repurchase agreement (repo) protocol designed for tokenized equities and real-world assets (RWAs) on Arbitrum Orbit chains (Robinhood Chain) and Arbitrum Sepolia.
+OrbitRepo is a decentralized fixed-term repurchase agreement (repo) protocol specifically built for tokenized equities on **Robinhood Chain Testnet** (Arbitrum Orbit L2, Chain ID: `46630`).
 
 Unlike generic lending pools (e.g., Aave, Morpho) that apply uniform, static loan-to-value (LTV) ratios across diverse asset classes, OrbitRepo dynamically recalculates collateral haircuts and maximum LTVs on-chain using a Parametric Value-at-Risk (VaR) risk engine implemented in **Arbitrum Stylus (Rust WASM)**.
 
@@ -18,7 +18,7 @@ Robinhood Chain natively bundles tokenized equities alongside baseline lending p
 
 1. **Floating vs. Fixed Duration**: Generic lending markets utilize open-ended pools with utilization-driven floating interest rates. Institutional liquidity providers require fixed-term horizons (Overnight, 7-Day, 30-Day) that provide deterministic yield profiles akin to short-duration fixed-income securities.
 2. **Static Risk Parameters**: Standard protocols infrequently update collateral factors through governance votes. For equities, static parameters fail to account for:
-   - Differing realized volatilities across single-stock tickers (e.g., AAPL vs. high-beta growth equities).
+   - Differing realized volatilities across single-stock tickers (e.g., PLTR vs. AMZN).
    - Market session gap risks, where corporate announcements and earnings releases induce 10%–25% price gaps between market closures.
 
 A flat LTV either over-burdens liquid collateral with punitive haircuts or severely under-collateralizes volatile equities, creating systemic protocol insolvency risks.
@@ -29,14 +29,14 @@ A flat LTV either over-burdens liquid collateral with punitive haircuts or sever
 
 OrbitRepo decouples capital allocation from risk assessment:
 
-- **Borrowers** deposit whitelisted equity tokens (e.g., `tAAPL`, `tNVDA`), choose a fixed duration (1, 7, or 30 days), and draw stablecoin liquidity up to a dynamic LTV determined at execution by the Stylus Risk Engine.
+- **Borrowers** deposit whitelisted Robinhood tokenized equities (`AMD`, `AMZN`, `NFLX`, `PLTR`, `TSLA`), choose a fixed duration (1, 7, or 30 days), and draw stablecoin liquidity up to a dynamic LTV determined at execution by the Stylus Risk Engine.
 - **Liquidity Providers (LPs)** supply stablecoins (USDC) to a dedicated pool, locking in predictable fixed repo interest.
 - **At Maturity**, the position must be repaid (principal plus fixed interest) to retrieve collateral. If current valuation violates the maintenance margin or maturity lapses, the position enters permissionless liquidation.
 
 ```
  Borrower                         Liquidity Provider
     │                                     │
-    │ collateral (tAAPL, tNVDA)           │ stablecoin (USDC)
+    │ collateral (AMD, TSLA, etc.)        │ stablecoin (USDC)
     ▼                                     ▼
 ┌─────────────────────────────────────────────────┐
 │                   RepoVault.sol                 │
@@ -88,9 +88,9 @@ Compiled to WebAssembly via **Arbitrum Stylus**, the `RiskEngine` achieves:
 ### Dynamic LTV Calibration Sample
 | Asset | Daily Volatility ($\sigma_{\text{daily}}$) | Term ($t$) | VaR Haircut | OrbitRepo Max LTV | Standard DeFi LTV |
 |---|---|---|---|---|---|
-| **Volatile Equity (`tAAPL`)** | 3.2% / day | 1 Day (Overnight) | 7.5% | **80.0%** (Capped) | 75.0% |
-| **Volatile Equity (`tAAPL`)** | 3.2% / day | **30 Days** | 40.8% | **59.2%** (Risk-adjusted) | 75.0% *(Insolvency Risk)* |
-| **Broad-Market ETF (`tSPY`)** | 1.1% / day | 30 Days | 15.3% | **80.0%** (Capped) | 75.0% *(Capital Inefficient)* |
+| **Tech Large-Cap (`AMZN`)** | 2.2% / day | 1 Day (Overnight) | 5.1% | **80.0%** (Capped) | 75.0% |
+| **High-Beta Equity (`PLTR`)** | 4.1% / day | **30 Days** | 52.3% | **47.7%** (Risk-adjusted) | 75.0% *(Insolvency Risk)* |
+| **Semiconductor (`AMD`)** | 3.4% / day | 7 Days | 21.0% | **79.0%** (Risk-adjusted) | 75.0% |
 
 ---
 
@@ -112,7 +112,7 @@ Compiled to WebAssembly via **Arbitrum Stylus**, the `RiskEngine` achieves:
 - `cargo-stylus` CLI (v0.6.3+)
 - Node.js (v20+)
 
-### Automated On-Chain Deployment (Arbitrum Sepolia)
+### Automated On-Chain Deployment (Robinhood Chain Testnet)
 1. Copy the environment template:
    ```bash
    cp .env.example .env
@@ -120,20 +120,27 @@ Compiled to WebAssembly via **Arbitrum Stylus**, the `RiskEngine` achieves:
 2. Set your testnet private key inside `.env`:
    ```env
    PRIVATE_KEY=your_private_key_without_0x
-   ARBITRUM_SEPOLIA_RPC=https://sepolia-rollup.arbitrum.io/rpc
+   ROBINHOOD_TESTNET_RPC=https://rpc.testnet.chain.robinhood.com
    ```
-3. Run the broadcast deployment script:
+3. Run the broadcast deployment script directly to Robinhood Chain:
    ```bash
-   forge script script/Deploy.s.sol --rpc-url https://sepolia-rollup.arbitrum.io/rpc --broadcast
+   forge script script/Deploy.s.sol --rpc-url https://rpc.testnet.chain.robinhood.com --broadcast -vvvv
    ```
-   *The script automatically logs deployed addresses and exports configuration directly into `frontend/src/contracts/addresses.json`.*
+   *The script automatically deploys oracles, links canonical Robinhood equities (`AMD`, `AMZN`, `NFLX`, `PLTR`, `TSLA`), initializes protocol liquidity, and updates `frontend/src/contracts/addresses.json`.*
+
+### Network Reference
+- **Network Name**: Robinhood Chain Testnet
+- **Chain ID**: `46630`
+- **RPC URL**: `https://rpc.testnet.chain.robinhood.com`
+- **Block Explorer**: `https://explorer.testnet.chain.robinhood.com`
+- **Official Faucet**: `https://faucet.testnet.chain.robinhood.com/`
 
 ### Running Test Suites
 ```bash
 # Execute Solidity tests with full execution traces
 forge test -vvv
 
-# Verify Stylus WASM contract against Arbitrum Sepolia RPC
+# Verify Stylus WASM contract against Arbitrum Stylus testnet / Sepolia RPC
 cd contracts/stylus/risk_engine
 cargo stylus check --endpoint https://sepolia-rollup.arbitrum.io/rpc
 ```
@@ -150,17 +157,17 @@ Navigate to `http://localhost:5173`.
 
 ## 6. Frontend Interface Features
 
-- **Repo Borrower Terminal**: Deposit tokenized equities, select fixed terms (1, 7, 30 days), and observe the real-time calculated Max LTV.
+- **Repo Borrower Terminal**: Deposit canonical Robinhood stock tokens (`AMD`, `AMZN`, `NFLX`, `PLTR`, `TSLA`), select fixed terms (1, 7, 30 days), and observe the real-time calculated Max LTV.
 - **Liquidity Provider Interface**: Supply stablecoin liquidity and review fixed-term yield growth.
 - **Stress-Testing & Keeper Panel**: Simulate market gap drops (-15% to -45%) to inspect position health changes and test permissionless keeper liquidations.
-- **Wallet Connectivity**: Native injected wallet integration (MetaMask, Rabby) with automatic chain validation for Arbitrum Sepolia (`421614`).
+- **Wallet Connectivity**: Native injected wallet integration (MetaMask, Rabby) with 1-click automatic chain switching to Robinhood Chain Testnet (`46630`).
 
 ---
 
 ## 7. Buildathon Evaluation Alignment
 
-- **Ecosystem Focus (Terms & Conditions Clause 6.2)**: Specifically architected for tokenized equities on **Robinhood Chain** (qualifies for reserved prize allocations).
-- **Arbitrum Stylus Integration**: Practical, non-cosmetic usage of Stylus MultiVM for computationally intensive risk algorithms.
+- **Ecosystem Focus (Terms & Conditions Clause 6.2 #1)**: Built directly on **Robinhood Chain Testnet** using its native tokenized equities, targeting the reserved Robinhood Chain prize quota.
+- **Arbitrum Stylus Integration**: Practical, non-cosmetic usage of Stylus MultiVM (Rust WASM) for computationally intensive Parametric VaR risk algorithms.
 - **Contract Robustness**: Implements checks-effects-interactions, reentrancy guards, oracle freshness assertions, and 100% passing Foundry test suites.
 
 ---

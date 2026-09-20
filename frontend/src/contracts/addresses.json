@@ -1,12 +1,53 @@
 {
-  "chainId": 421614,
-  "network": "Arbitrum Sepolia",
-  "usdc": "0x88AEac64e4Af2ac3EfDd85E2d15592DE2ff7AA50",
-  "taapl": "0xe7C301Fc17859D6A2f061Fdd16615C5BebFb5707",
-  "tnvda": "0x053f4D1A89b46F18B001d300D934aff4484DcB7E",
-  "aaplOracle": "0x2a53590dd73cc64e1d400DC3d1B42FE3aC52bF43",
-  "nvdaOracle": "0x86Cedc99415Cfc33264d10B24E8525856eE41855",
-  "riskEngine": "0x1DDd86648Ab58854E1EebAB2bf9f1fCE89F9A025",
-  "liquidityPool": "0xE29F046CdA860e0fa09984e69Df60A8B9A26E2Dd",
-  "repoVault": "0x95175c098EF58807325Aa48e95E5344e1Cf74a9f"
+  "chainId": 46630,
+  "network": "Robinhood Chain Testnet",
+  "rpcUrl": "https://rpc.testnet.chain.robinhood.com",
+  "explorerUrl": "https://explorer.testnet.chain.robinhood.com",
+  "faucetUrl": "https://faucet.testnet.chain.robinhood.com/",
+  "usdc": "0xD836bC71C9ECAe447F3f323d9C4E982A0ad178D2",
+  "liquidityPool": "0x96C3a2f9782Fbc4D8c412F4BA0d789CedDDd8FD1",
+  "repoVault": "0x9980366253dCA0b5d51e0F4a3dd0874E0c1F3FF2",
+  "riskEngine": "0x701D2037002F20c57217a7B0Cb04104622EF297C",
+  "tokens": {
+    "AMD": {
+      "name": "Advanced Micro Devices",
+      "symbol": "AMD",
+      "address": "0x71178BAc73cBeb415514eB542a8995b82669778d",
+      "oracle": "0x60aC7E3E0e7D498fCa1d7F526BB21F90d1E43D5F",
+      "initialPrice": 155.0,
+      "volatility": 3.4
+    },
+    "AMZN": {
+      "name": "Amazon.com Inc.",
+      "symbol": "AMZN",
+      "address": "0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02",
+      "oracle": "0xBe9Db7735B06FEa557f3Aa18317eaB229BA6ebC5",
+      "initialPrice": 185.0,
+      "volatility": 2.2
+    },
+    "NFLX": {
+      "name": "Netflix Inc.",
+      "symbol": "NFLX",
+      "address": "0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93",
+      "oracle": "0xFAB206535E521be5B24AeEf30b3CB71f7bf21459",
+      "initialPrice": 690.0,
+      "volatility": 2.8
+    },
+    "PLTR": {
+      "name": "Palantir Technologies",
+      "symbol": "PLTR",
+      "address": "0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0",
+      "oracle": "0xbC30F5305aa35851cb6bf8bEb677fAfbebEbfc5c",
+      "initialPrice": 36.0,
+      "volatility": 4.1
+    },
+    "TSLA": {
+      "name": "Tesla Inc.",
+      "symbol": "TSLA",
+      "address": "0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E",
+      "oracle": "0x9Ae8E309eE8588D9D86cC7Dd692940e458F6d88E",
+      "initialPrice": 245.0,
+      "volatility": 3.8
+    }
+  }
 }

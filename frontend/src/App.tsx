@@ -3,7 +3,9 @@ import {
   TrendingUp, 
   Layers, 
   Cpu, 
-  Sliders
+  Sliders,
+  ExternalLink,
+  ShieldCheck
 } from 'lucide-react';
 import addresses from './contracts/addresses.json';
 
@@ -13,33 +15,55 @@ interface AssetConfig {
   price: number;
   dailyVol: number; // Daily volatility in %
   annualizedVol: number;
-  type: 'Equity' | 'ETF';
+  type: 'Equity';
+  address: string;
 }
 
 const SUPPORTED_ASSETS: Record<string, AssetConfig> = {
-  tAAPL: {
-    symbol: 'tAAPL',
-    name: 'Tokenized Apple Inc.',
-    price: 225.50,
-    dailyVol: 3.2,
-    annualizedVol: 50.8,
+  AMD: {
+    symbol: 'AMD',
+    name: 'Advanced Micro Devices',
+    price: 155.00,
+    dailyVol: 3.4,
+    annualizedVol: 53.9,
     type: 'Equity',
+    address: '0x71178BAc73cBeb415514eB542a8995b82669778d'
   },
-  tNVDA: {
-    symbol: 'tNVDA',
-    name: 'Tokenized NVIDIA Corp.',
-    price: 120.00,
+  AMZN: {
+    symbol: 'AMZN',
+    name: 'Amazon.com Inc.',
+    price: 185.00,
+    dailyVol: 2.2,
+    annualizedVol: 34.9,
+    type: 'Equity',
+    address: '0x5884aD2f920c162CFBbACc88C9C51AA75eC09E02'
+  },
+  NFLX: {
+    symbol: 'NFLX',
+    name: 'Netflix Inc.',
+    price: 690.00,
     dailyVol: 2.8,
     annualizedVol: 44.4,
     type: 'Equity',
+    address: '0x3b8262A63d25f0477c4DDE23F83cfe22Cb768C93'
   },
-  tSPY: {
-    symbol: 'tSPY',
-    name: 'Tokenized S&P 500 ETF',
-    price: 560.00,
-    dailyVol: 1.1,
-    annualizedVol: 17.5,
-    type: 'ETF',
+  PLTR: {
+    symbol: 'PLTR',
+    name: 'Palantir Technologies',
+    price: 36.00,
+    dailyVol: 4.1,
+    annualizedVol: 65.0,
+    type: 'Equity',
+    address: '0x1FBE1a0e43594b3455993B5dE5Fd0A7A266298d0'
+  },
+  TSLA: {
+    symbol: 'TSLA',
+    name: 'Tesla Inc.',
+    price: 245.00,
+    dailyVol: 3.8,
+    annualizedVol: 60.3,
+    type: 'Equity',
+    address: '0xC9f9c86933092BbbfFF3CCb4b105A4A94bf3Bd4E'
   }
 };
 
@@ -56,9 +80,9 @@ interface RepoPosition {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'borrow' | 'lend' | 'risk'>('borrow');
-  const [selectedAsset, setSelectedAsset] = useState<string>('tAAPL');
+  const [selectedAsset, setSelectedAsset] = useState<string>('TSLA');
   const [termDays, setTermDays] = useState<number>(30);
-  const [collateralInput, setCollateralInput] = useState<string>('10');
+  const [collateralInput, setCollateralInput] = useState<string>('25');
   
   // Web3 state
   const [account, setAccount] = useState<string | null>(null);
@@ -66,11 +90,13 @@ export default function App() {
   const [isConnecting, setIsConnecting] = useState<boolean>(false);
   
   // Balances
-  const [balances, setBalances] = useState({
+  const [balances, setBalances] = useState<Record<string, number>>({
     USDC: 50000,
-    tAAPL: 50,
-    tNVDA: 100,
-    tSPY: 25
+    AMD: 100,
+    AMZN: 50,
+    NFLX: 20,
+    PLTR: 250,
+    TSLA: 40
   });
 
   // Stress test multiplier for price feed
@@ -80,13 +106,13 @@ export default function App() {
   const [positions, setPositions] = useState<RepoPosition[]>([
     {
       id: 1,
-      asset: 'tAAPL',
-      collateralAmt: 10,
-      debt: 1335.00,
+      asset: 'TSLA',
+      collateralAmt: 25,
+      debt: 3630.00,
       termDays: 30,
-      openedPrice: 225.50,
-      maxLtv: 59.2,
-      maturityDate: 'Oct 18, 2026'
+      openedPrice: 245.00,
+      maxLtv: 59.3,
+      maturityDate: 'Oct 20, 2026'
     }
   ]);
 
@@ -153,28 +179,28 @@ export default function App() {
       }
     } else {
       // Fallback simulation mode
-      setAccount('0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266');
-      setChainId(421614);
+      setAccount('0x468Eb868099C6dF5Ac324587ea833e9fDF6275fB');
+      setChainId(46630);
     }
   };
 
-  const switchToArbitrumSepolia = async () => {
+  const switchToRobinhoodTestnet = async () => {
     if (typeof window !== 'undefined' && (window as any).ethereum) {
       try {
         await (window as any).ethereum.request({
           method: 'wallet_switchEthereumChain',
-          params: [{ chainId: '0x66eee' }], // 421614 in hex
+          params: [{ chainId: '0xb626' }], // 46630 in hex
         });
       } catch (switchError: any) {
         if (switchError.code === 4902) {
           await (window as any).ethereum.request({
             method: 'wallet_addEthereumChain',
             params: [{
-              chainId: '0x66eee',
-              chainName: 'Arbitrum Sepolia',
+              chainId: '0xb626',
+              chainName: 'Robinhood Chain Testnet',
               nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
-              rpcUrls: ['https://sepolia-rollup.arbitrum.io/rpc'],
-              blockExplorerUrls: ['https://sepolia.arbiscan.io/']
+              rpcUrls: ['https://rpc.testnet.chain.robinhood.com'],
+              blockExplorerUrls: ['https://explorer.testnet.chain.robinhood.com/']
             }]
           });
         }
@@ -184,7 +210,7 @@ export default function App() {
 
   const handleOpenRepo = () => {
     if (collateralQty <= 0) return;
-    if (balances[selectedAsset as keyof typeof balances] < collateralQty) {
+    if ((balances[selectedAsset] || 0) < collateralQty) {
       alert('Insufficient collateral balance');
       return;
     }
@@ -203,7 +229,7 @@ export default function App() {
     setPositions([newPosition, ...positions]);
     setBalances(prev => ({
       ...prev,
-      [selectedAsset]: prev[selectedAsset as keyof typeof prev] - collateralQty,
+      [selectedAsset]: (prev[selectedAsset] || 0) - collateralQty,
       USDC: prev.USDC + maxBorrowAmount
     }));
   };
@@ -219,7 +245,7 @@ export default function App() {
     setBalances(prev => ({
       ...prev,
       USDC: prev.USDC - pos.debt,
-      [pos.asset]: prev[pos.asset as keyof typeof prev] + pos.collateralAmt
+      [pos.asset]: (prev[pos.asset] || 0) + pos.collateralAmt
     }));
     setPositions(positions.filter(p => p.id !== id));
   };
@@ -231,22 +257,12 @@ export default function App() {
     setBalances(prev => ({
       ...prev,
       USDC: prev.USDC - pos.debt,
-      [pos.asset]: prev[pos.asset as keyof typeof prev] + pos.collateralAmt
+      [pos.asset]: (prev[pos.asset] || 0) + pos.collateralAmt
     }));
     setPositions(positions.filter(p => p.id !== id));
   };
 
-  const handleClaimFaucet = () => {
-    setBalances(prev => ({
-      ...prev,
-      USDC: prev.USDC + 10000,
-      tAAPL: prev.tAAPL + 25,
-      tNVDA: prev.tNVDA + 50,
-      tSPY: prev.tSPY + 10
-    }));
-  };
-
-  const isArbitrumSepolia = chainId === 421614;
+  const isRobinhoodChain = chainId === 46630;
 
   return (
     <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '24px 20px 80px' }}>
@@ -255,8 +271,8 @@ export default function App() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '28px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ 
-            width: '38px', 
-            height: '38px', 
+            width: '40px', 
+            height: '40px', 
             borderRadius: '8px', 
             background: '#0f172a', 
             border: '1px solid var(--border-strong)',
@@ -264,28 +280,34 @@ export default function App() {
             alignItems: 'center', 
             justifyContent: 'center' 
           }}>
-            <Cpu size={20} color="#38bdf8" />
+            <Cpu size={22} color="#38bdf8" />
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <span style={{ fontSize: '1.25rem', fontWeight: '700', letterSpacing: '-0.01em' }}>OrbitRepo</span>
+              <span className="pill pill-green">Robinhood Chain Testnet</span>
               <span className="pill pill-cyan">Arbitrum Stylus WASM</span>
-              <span className="pill pill-green">Arbitrum Sepolia</span>
             </div>
             <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-              Fixed-Term Repo Market for Tokenized Equity | Parametric VaR Dynamic Risk Engine
+              Institutional Fixed-Term Repo Market for Robinhood Tokenized Equities
             </div>
           </div>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={handleClaimFaucet} className="btn btn-secondary" style={{ fontSize: '0.8125rem' }}>
-            Mint Test Collateral
-          </button>
+          <a 
+            href="https://faucet.testnet.chain.robinhood.com/" 
+            target="_blank" 
+            rel="noreferrer" 
+            className="btn btn-secondary" 
+            style={{ fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+          >
+            Robinhood Faucet <ExternalLink size={13} />
+          </a>
 
-          {account && !isArbitrumSepolia && (
-            <button onClick={switchToArbitrumSepolia} className="btn btn-danger" style={{ fontSize: '0.8125rem' }}>
-              Switch to Arbitrum Sepolia
+          {account && !isRobinhoodChain && (
+            <button onClick={switchToRobinhoodTestnet} className="btn btn-danger" style={{ fontSize: '0.8125rem' }}>
+              Switch to Robinhood Chain (46630)
             </button>
           )}
 
@@ -305,21 +327,21 @@ export default function App() {
         </div>
 
         <div className="panel" style={{ padding: '16px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Stylus Risk Engine</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Stylus MultiVM Risk</div>
           <div className="mono" style={{ fontSize: '1.35rem', fontWeight: '600', marginTop: '4px', color: 'var(--accent-cyan)' }}>86.6% Gas Saved</div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Rust WASM vs EVM storage loop</div>
         </div>
 
         <div className="panel" style={{ padding: '16px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Available Liquidity</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Robinhood Pool Reserve</div>
           <div className="mono" style={{ fontSize: '1.35rem', fontWeight: '600', marginTop: '4px' }}>$500,000.00 USDC</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Fixed-term pool reserves</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Fixed-term liquidity backed</div>
         </div>
 
         <div className="panel" style={{ padding: '16px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Settlement Vault</div>
-          <div className="mono" style={{ fontSize: '1.35rem', fontWeight: '600', marginTop: '4px' }}>Non-Upgradeable</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Trust-minimized core logic</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Canonical Assets</div>
+          <div className="mono" style={{ fontSize: '1.35rem', fontWeight: '600', marginTop: '4px' }}>5 Whitelisted</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>AMD, AMZN, NFLX, PLTR, TSLA</div>
         </div>
       </div>
 
@@ -356,7 +378,7 @@ export default function App() {
             borderColor: activeTab === 'risk' ? 'var(--border-strong)' : 'transparent'
           }}
         >
-          <Sliders size={16} /> Risk Engine & Liquidation Monitor
+          <Sliders size={16} /> Risk Engine & Stress Test
         </button>
       </div>
 
@@ -367,14 +389,19 @@ export default function App() {
           <div className="panel">
             <div className="panel-header">
               <span style={{ fontWeight: '600' }}>Borrow Fixed-Term Capital</span>
-              <span className="pill pill-cyan">MultiVM Sync</span>
+              <span className="pill pill-cyan">Robinhood Orbit MultiVM</span>
             </div>
 
             <div className="panel-body">
               {/* Asset Selection */}
               <div style={{ marginBottom: '18px' }}>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Collateral Asset</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <label style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>Collateral Stock Token (Canonical Robinhood)</label>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-green)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <ShieldCheck size={13} /> Verified Faucet Equities
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '8px' }}>
                   {Object.keys(SUPPORTED_ASSETS).map(sym => {
                     const item = SUPPORTED_ASSETS[sym];
                     const active = selectedAsset === sym;
@@ -383,23 +410,29 @@ export default function App() {
                         key={sym} 
                         onClick={() => setSelectedAsset(sym)}
                         style={{
-                          padding: '12px',
+                          padding: '10px',
                           borderRadius: '8px',
                           background: active ? 'var(--bg-surface-elevated)' : 'var(--bg-surface-subtle)',
                           border: active ? '1px solid var(--accent-cyan)' : '1px solid var(--border-subtle)',
                           cursor: 'pointer'
                         }}
                       >
-                        <div style={{ fontWeight: '600', fontSize: '0.9375rem' }}>{item.symbol}</div>
+                        <div style={{ fontWeight: '700', fontSize: '0.9375rem' }}>{item.symbol}</div>
                         <div className="mono" style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                           ${(item.price * priceMultiplier).toFixed(2)}
                         </div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                          σ: {item.dailyVol}% / day
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                          σ: {item.dailyVol}%/d
                         </div>
                       </div>
                     );
                   })}
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  Contract: <span className="mono">{asset.address}</span>
+                  <a href={`https://explorer.testnet.chain.robinhood.com/address/${asset.address}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-cyan)' }}>
+                    <ExternalLink size={12} />
+                  </a>
                 </div>
               </div>
 
@@ -436,7 +469,7 @@ export default function App() {
               <div style={{ marginBottom: '20px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
                   <span>Pledged Collateral Amount</span>
-                  <span className="mono">Balance: {balances[selectedAsset as keyof typeof balances]} {selectedAsset}</span>
+                  <span className="mono">Balance: {balances[selectedAsset] || 0} {selectedAsset}</span>
                 </div>
                 <div style={{ position: 'relative' }}>
                   <input 
@@ -447,7 +480,7 @@ export default function App() {
                     placeholder="0.00"
                   />
                   <button 
-                    onClick={() => setCollateralInput(balances[selectedAsset as keyof typeof balances].toString())}
+                    onClick={() => setCollateralInput((balances[selectedAsset] || 0).toString())}
                     style={{
                       position: 'absolute',
                       right: '10px',
@@ -475,13 +508,13 @@ export default function App() {
                 marginBottom: '20px' 
               }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>Stylus Dynamic Max LTV</span>
-                  <span className="mono" style={{ fontSize: '1.2rem', fontWeight: '700', color: dynamicMaxLtv >= 75 ? 'var(--accent-green)' : 'var(--accent-amber)' }}>
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>Stylus Dynamic Max LTV ({asset.symbol})</span>
+                  <span className="mono" style={{ fontSize: '1.2rem', fontWeight: '700', color: dynamicMaxLtv >= 70 ? 'var(--accent-green)' : 'var(--accent-amber)' }}>
                     {dynamicMaxLtv}%
                   </span>
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', lineHeight: '1.4' }}>
-                  Parametric VaR (99% CI): Realized haircut {rawHaircut.toFixed(1)}% applied over {termDays}-day horizon. Maintenance liquidation buffer set at {maintenanceLtv}%.
+                  Parametric VaR (99% CI): Calculated haircut of {rawHaircut.toFixed(1)}% applied for {termDays}-day term based on σ={asset.dailyVol}% daily volatility. Maintenance liquidation threshold at {maintenanceLtv}%.
                 </div>
               </div>
 
@@ -515,20 +548,20 @@ export default function App() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div className="panel">
               <div className="panel-header">
-                <span style={{ fontWeight: '600' }}>Model Comparison: Stylus vs Static DeFi</span>
+                <span style={{ fontWeight: '600' }}>Robinhood Chain Lending Innovation</span>
               </div>
               <div className="panel-body" style={{ fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--bg-surface-subtle)', border: '1px solid var(--border-subtle)' }}>
-                  <div style={{ fontWeight: '600', color: 'var(--text-secondary)' }}>Static Lending (Aave / Morpho Flat 75%)</div>
+                  <div style={{ fontWeight: '600', color: 'var(--text-secondary)' }}>Generic Lending (Aave / Morpho Flat LTV)</div>
                   <div style={{ color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                    Treats all stocks identically. Overnight earnings announcements causing sudden 20%+ drops lead to protocol bad debt and cascading liquidations.
+                    Treats all equity collaterals with static parameters. Earnings gap drops in high-beta stocks (TSLA, PLTR) easily trigger undercollateralized insolvency.
                   </div>
                 </div>
 
                 <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--accent-cyan-subtle)', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
-                  <div style={{ fontWeight: '600', color: 'var(--accent-cyan)' }}>OrbitRepo Dynamic Stylus Risk Engine</div>
+                  <div style={{ fontWeight: '600', color: 'var(--accent-cyan)' }}>OrbitRepo Stylus Parametric VaR</div>
                   <div style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Customizes haircut per stock: <strong>tAAPL 30-day bounded at 59.2%</strong> to preserve solvency, while <strong>tSPY ETF unlocks 80.0%</strong> maximum capital efficiency.
+                    Dynamically prices market risk per asset: <strong>AMZN (lower vol) unlocks higher borrowing power (73.5%)</strong>, while <strong>PLTR and TSLA require higher haircuts</strong> to guarantee pool solvency.
                   </div>
                 </div>
               </div>
@@ -584,12 +617,12 @@ export default function App() {
         <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: '20px' }}>
           <div className="panel">
             <div className="panel-header">
-              <span style={{ fontWeight: '600' }}>Fixed-Yield Liquidity Pool</span>
+              <span style={{ fontWeight: '600' }}>Robinhood Fixed-Yield Liquidity Pool</span>
               <span className="pill pill-green">ERC-4626 Compatible</span>
             </div>
             <div className="panel-body">
               <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.5' }}>
-                Supply USDC to back short-term institutional repo obligations. Unlike variable DeFi lending markets, repo yield is locked at the moment of borrowing, creating predictable bond-like yield profiles.
+                Supply USDC to back short-term institutional repo obligations for Robinhood tokenized equities. Unlike variable DeFi lending markets, repo yield is locked at the moment of borrowing, creating predictable bond-like yield profiles.
               </p>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
@@ -661,7 +694,7 @@ export default function App() {
           <div className="panel-body">
             {/* Scenario buttons */}
             <div style={{ marginBottom: '24px' }}>
-              <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Market Price Adjustment:</div>
+              <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Market Price Adjustment ({selectedAsset}):</div>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                 <button onClick={() => setPriceMultiplier(1.0)} className={`btn ${priceMultiplier === 1.0 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem' }}>
                   Baseline Market (0%)
@@ -717,7 +750,7 @@ export default function App() {
                       <td>
                         {isLiquidatable ? (
                           <button onClick={() => handleLiquidate(pos.id)} className="btn btn-danger" style={{ fontSize: '0.75rem', padding: '6px 10px' }}>
-                            Execute Liquidation ($217 Bounty)
+                            Execute Liquidation ($240 Bounty)
                           </button>
                         ) : (
                           <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>No action required</span>
@@ -735,10 +768,18 @@ export default function App() {
       {/* Footer */}
       <footer style={{ marginTop: '50px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-tertiary)', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          OrbitRepo Protocol | Arbitrum Stylus MultiVM & Solidity Core
+          OrbitRepo Protocol | Arbitrum Stylus MultiVM on Robinhood Chain
         </div>
         <div className="mono">
-          Settlement: 421614 (Arbitrum Sepolia) | Vault: {addresses.repoVault ? `${addresses.repoVault.slice(0, 10)}...` : 'Deployed'}
+          Settlement: 46630 (Robinhood Chain Testnet) | Vault:{' '}
+          <a 
+            href={`https://explorer.testnet.chain.robinhood.com/address/${addresses.repoVault}`} 
+            target="_blank" 
+            rel="noreferrer" 
+            style={{ color: 'var(--accent-cyan)' }}
+          >
+            {addresses.repoVault ? `${addresses.repoVault.slice(0, 10)}...` : 'Deployed'}
+          </a>
         </div>
       </footer>
 
