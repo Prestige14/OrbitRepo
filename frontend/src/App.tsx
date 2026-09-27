@@ -13,7 +13,14 @@ import {
   Sparkles,
   RefreshCw,
   Zap,
-  ArrowRight
+  ArrowRight,
+  Wallet,
+  Percent,
+  BarChart3,
+  Activity,
+  ChevronRight,
+  Lock,
+  ArrowUpRight
 } from 'lucide-react';
 import { 
   BrowserProvider, 
@@ -37,21 +44,25 @@ interface AssetConfig {
   price: number;
   dailyVol: number; // Daily volatility in %
   annualizedVol: number;
-  type: 'Equity';
+  beta: string;
+  brandClass: string;
+  brandColor: string;
   address: string;
   oracle: string;
 }
 
 const SUPPORTED_ASSETS: Record<string, AssetConfig> = {
-  AMD: {
-    symbol: 'AMD',
-    name: 'Advanced Micro Devices',
-    price: 155.00,
-    dailyVol: 3.4,
-    annualizedVol: 53.9,
-    type: 'Equity',
-    address: addresses.tokens.AMD.address,
-    oracle: addresses.tokens.AMD.oracle
+  TSLA: {
+    symbol: 'TSLA',
+    name: 'Tesla Inc.',
+    price: 245.00,
+    dailyVol: 3.8,
+    annualizedVol: 60.3,
+    beta: '1.92x',
+    brandClass: 'stock-badge-tsla',
+    brandColor: '#e82127',
+    address: addresses.tokens.TSLA.address,
+    oracle: addresses.tokens.TSLA.oracle
   },
   AMZN: {
     symbol: 'AMZN',
@@ -59,9 +70,23 @@ const SUPPORTED_ASSETS: Record<string, AssetConfig> = {
     price: 185.00,
     dailyVol: 2.2,
     annualizedVol: 34.9,
-    type: 'Equity',
+    beta: '1.14x',
+    brandClass: 'stock-badge-amzn',
+    brandColor: '#ff9900',
     address: addresses.tokens.AMZN.address,
     oracle: addresses.tokens.AMZN.oracle
+  },
+  AMD: {
+    symbol: 'AMD',
+    name: 'Advanced Micro Devices',
+    price: 155.00,
+    dailyVol: 3.4,
+    annualizedVol: 53.9,
+    beta: '1.68x',
+    brandClass: 'stock-badge-amd',
+    brandColor: '#00c805',
+    address: addresses.tokens.AMD.address,
+    oracle: addresses.tokens.AMD.oracle
   },
   NFLX: {
     symbol: 'NFLX',
@@ -69,7 +94,9 @@ const SUPPORTED_ASSETS: Record<string, AssetConfig> = {
     price: 690.00,
     dailyVol: 2.8,
     annualizedVol: 44.4,
-    type: 'Equity',
+    beta: '1.28x',
+    brandClass: 'stock-badge-nflx',
+    brandColor: '#e50914',
     address: addresses.tokens.NFLX.address,
     oracle: addresses.tokens.NFLX.oracle
   },
@@ -79,19 +106,11 @@ const SUPPORTED_ASSETS: Record<string, AssetConfig> = {
     price: 36.00,
     dailyVol: 4.1,
     annualizedVol: 65.0,
-    type: 'Equity',
+    beta: '2.15x',
+    brandClass: 'stock-badge-pltr',
+    brandColor: '#38bdf8',
     address: addresses.tokens.PLTR.address,
     oracle: addresses.tokens.PLTR.oracle
-  },
-  TSLA: {
-    symbol: 'TSLA',
-    name: 'Tesla Inc.',
-    price: 245.00,
-    dailyVol: 3.8,
-    annualizedVol: 60.3,
-    type: 'Equity',
-    address: addresses.tokens.TSLA.address,
-    oracle: addresses.tokens.TSLA.oracle
   }
 };
 
@@ -162,7 +181,7 @@ export default function App() {
       termDays: 30,
       openedPrice: 245.00,
       maxLtv: 59.3,
-      maturityDate: 'Oct 25, 2026'
+      maturityDate: 'Oct 28, 2026'
     }
   ]);
 
@@ -179,10 +198,10 @@ export default function App() {
   const maintenanceLtv = parseFloat((dynamicMaxLtv + 5.0).toFixed(1)); // 500 bps buffer
 
   // Term fees
-  const termRates: Record<number, { feeBps: number; label: string; rateText: string }> = {
-    1: { feeBps: 3, label: 'Overnight (1D)', rateText: '0.03%' },
-    7: { feeBps: 15, label: '7 Days', rateText: '0.15%' },
-    30: { feeBps: 60, label: '30 Days', rateText: '0.60%' }
+  const termRates: Record<number, { feeBps: number; label: string; rateText: string; tenorDesc: string }> = {
+    1: { feeBps: 3, label: 'Overnight', rateText: '0.03%', tenorDesc: '1-Day Liquidity' },
+    7: { feeBps: 15, label: '7 Days', rateText: '0.15%', tenorDesc: 'Weekly Repo' },
+    30: { feeBps: 60, label: '30 Days', rateText: '0.60%', tenorDesc: 'Monthly Facility' }
   };
 
   const collateralQty = parseFloat(collateralInput) || 0;
@@ -258,12 +277,10 @@ export default function App() {
         const totalPos = Number(nextId);
         const onChainPosList: RepoPosition[] = [];
 
-        // Check recent positions
         const startPos = Math.max(1, totalPos - 15);
         for (let i = totalPos - 1; i >= startPos; i--) {
           try {
             const p = await vaultContract.positions(i);
-            // p = (id, borrower, collateralAsset, collateralAmount, borrowedPrincipal, fixedInterest, termDays, openedAt, maturityAt, maxLtvBps, isClosed)
             if (!p.isClosed && p.borrower.toLowerCase() === account.toLowerCase()) {
               const sym = Object.keys(SUPPORTED_ASSETS).find(
                 s => SUPPORTED_ASSETS[s].address.toLowerCase() === p.collateralAsset.toLowerCase()
@@ -304,7 +321,7 @@ export default function App() {
     } catch (err) {
       console.warn('Failed to fetch on-chain balances:', err);
     }
-  }, [account, isRobinhoodChain]);
+  }, [account, isRobinhoodChain, balances]);
 
   // Initial wallet detection
   useEffect(() => {
@@ -330,7 +347,7 @@ export default function App() {
     }
   }, []);
 
-  // Poll on-chain data when account/chain changes
+  // Poll on-chain data
   useEffect(() => {
     if (account && isRobinhoodChain && executionMode === 'onchain') {
       fetchOnChainData();
@@ -353,7 +370,6 @@ export default function App() {
         setIsConnecting(false);
       }
     } else {
-      // Fallback simulation mode
       setAccount('0x468Eb868099C6dF5Ac324587ea833e9fDF6275fB');
       setChainId(46630);
       setExecutionMode('simulated');
@@ -365,7 +381,7 @@ export default function App() {
       try {
         await (window as any).ethereum.request({
           method: 'wallet_switchEthereumChain',
-          params: [{ chainId: '0xb626' }], // 46630 in hex
+          params: [{ chainId: '0xb626' }],
         });
       } catch (switchError: any) {
         if (switchError.code === 4902) {
@@ -384,17 +400,19 @@ export default function App() {
     }
   };
 
-  // ==========================================
-  // TRANSACTION HANDLERS (ON-CHAIN & SIMULATED)
-  // ==========================================
+  // Quick percent helpers
+  const handleQuickPercent = (pct: number) => {
+    const bal = balances[selectedAsset] || 0;
+    const calculated = (bal * pct).toFixed(2);
+    setCollateralInput(calculated);
+  };
 
-  // 1. Open Repo Position
+  // Transaction Handlers
   const handleOpenRepo = async () => {
     if (collateralQty <= 0) return;
     setTxError(null);
     setLastTxHash(null);
 
-    // If in On-Chain mode with wallet connected on Robinhood Chain
     if (executionMode === 'onchain' && account && isRobinhoodChain) {
       try {
         setTxLoading(true);
@@ -403,13 +421,11 @@ export default function App() {
         const tokenContract = new Contract(asset.address, ERC20_ABI, signer);
         const vaultContract = new Contract(addresses.repoVault, REPO_VAULT_ABI, signer);
 
-        // Check token balance
         const balance = await tokenContract.balanceOf(account);
         if (balance < collateralWei) {
-          throw new Error(`Insufficient ${selectedAsset} balance on Robinhood Chain. Claim from Robinhood Faucet or switch to Simulation Mode.`);
+          throw new Error(`Insufficient ${selectedAsset} on Robinhood Chain. Mint from Faucet or switch to Simulation Lab.`);
         }
 
-        // Check allowance
         setTxStatusText(`Step 1/2: Checking ${selectedAsset} allowance...`);
         const allowance = await tokenContract.allowance(account, addresses.repoVault);
         if (allowance < collateralWei) {
@@ -419,18 +435,16 @@ export default function App() {
           await approveTx.wait();
         }
 
-        // Open position
         setTxStatusText(`Step 2/2: Confirming openPosition on Robinhood Chain...`);
         const tx = await vaultContract.openPosition(asset.address, collateralWei, termDays);
-        setTxStatusText(`Step 2/2: Mining repo transaction...`);
+        setTxStatusText(`Step 2/2: Mining repo position...`);
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
 
-        // Refresh on-chain balances
         await fetchOnChainData();
       } catch (err: any) {
-        console.error('OpenRepo on-chain error:', err);
-        setTxError(err.reason || err.message || 'Transaction failed or was rejected');
+        console.error('OpenRepo error:', err);
+        setTxError(err.reason || err.message || 'Transaction failed or rejected');
       } finally {
         setTxLoading(false);
         setTxStatusText('');
@@ -438,9 +452,9 @@ export default function App() {
       return;
     }
 
-    // Fallback: Instant Simulation Mode
+    // Simulation
     if ((balances[selectedAsset] || 0) < collateralQty) {
-      alert(`Insufficient ${selectedAsset} balance. Use faucet or adjust amount.`);
+      alert(`Insufficient ${selectedAsset} balance.`);
       return;
     }
 
@@ -463,7 +477,6 @@ export default function App() {
     }));
   };
 
-  // 2. Repay Position
   const handleRepay = async (id: number) => {
     const pos = positions.find(p => p.id === id);
     if (!pos) return;
@@ -478,7 +491,6 @@ export default function App() {
         const vaultContract = new Contract(addresses.repoVault, REPO_VAULT_ABI, signer);
         const debtWei = parseUnits(pos.debt.toFixed(6), 6);
 
-        // Check USDC allowance
         setTxStatusText(`Step 1/2: Checking USDC allowance for repayment...`);
         const allowance = await usdcContract.allowance(account, addresses.repoVault);
         if (allowance < debtWei) {
@@ -487,7 +499,6 @@ export default function App() {
           await approveTx.wait();
         }
 
-        // Repay
         setTxStatusText(`Step 2/2: Confirming repayment on Robinhood Chain...`);
         const tx = await vaultContract.repay(id);
         const receipt = await tx.wait();
@@ -496,8 +507,8 @@ export default function App() {
         await fetchOnChainData();
         setPositions(positions.filter(p => p.id !== id));
       } catch (err: any) {
-        console.error('Repay on-chain error:', err);
-        setTxError(err.reason || err.message || 'Repay transaction failed');
+        console.error('Repay error:', err);
+        setTxError(err.reason || err.message || 'Repay failed');
       } finally {
         setTxLoading(false);
         setTxStatusText('');
@@ -505,9 +516,9 @@ export default function App() {
       return;
     }
 
-    // Simulation Mode
+    // Simulation
     if (balances.USDC < pos.debt) {
-      alert('Insufficient USDC balance to settle principal and interest');
+      alert('Insufficient USDC to settle');
       return;
     }
     setBalances(prev => ({
@@ -518,7 +529,6 @@ export default function App() {
     setPositions(positions.filter(p => p.id !== id));
   };
 
-  // 3. Liquidate Position
   const handleLiquidate = async (id: number) => {
     const pos = positions.find(p => p.id === id);
     if (!pos) return;
@@ -548,8 +558,8 @@ export default function App() {
         await fetchOnChainData();
         setPositions(positions.filter(p => p.id !== id));
       } catch (err: any) {
-        console.error('Liquidation on-chain error:', err);
-        setTxError(err.reason || err.message || 'Liquidation transaction failed');
+        console.error('Liquidation error:', err);
+        setTxError(err.reason || err.message || 'Liquidation failed');
       } finally {
         setTxLoading(false);
         setTxStatusText('');
@@ -557,7 +567,6 @@ export default function App() {
       return;
     }
 
-    // Simulation Mode
     setBalances(prev => ({
       ...prev,
       USDC: prev.USDC - pos.debt,
@@ -566,7 +575,6 @@ export default function App() {
     setPositions(positions.filter(p => p.id !== id));
   };
 
-  // 4. Deposit Liquidity to Pool
   const handleDepositLiquidity = async () => {
     const amt = parseFloat(depositAmountInput);
     if (isNaN(amt) || amt <= 0) return;
@@ -596,7 +604,7 @@ export default function App() {
 
         await fetchOnChainData();
       } catch (err: any) {
-        console.error('Deposit LP on-chain error:', err);
+        console.error('Deposit LP error:', err);
         setTxError(err.reason || err.message || 'Deposit failed');
       } finally {
         setTxLoading(false);
@@ -605,7 +613,6 @@ export default function App() {
       return;
     }
 
-    // Simulation Mode
     setBalances(prev => ({ ...prev, USDC: Math.max(0, prev.USDC - amt) }));
     setPoolStats(prev => ({
       ...prev,
@@ -613,10 +620,8 @@ export default function App() {
       availableLiquidity: prev.availableLiquidity + amt,
       userShares: prev.userShares + amt
     }));
-    alert(`Deposit confirmed! ${amt.toLocaleString()} ORBIT-LP shares minted in simulation.`);
   };
 
-  // 5. Withdraw Liquidity from Pool
   const handleWithdrawLiquidity = async () => {
     const shares = parseFloat(withdrawSharesInput);
     if (isNaN(shares) || shares <= 0) return;
@@ -637,7 +642,7 @@ export default function App() {
 
         await fetchOnChainData();
       } catch (err: any) {
-        console.error('Withdraw LP on-chain error:', err);
+        console.error('Withdraw LP error:', err);
         setTxError(err.reason || err.message || 'Withdrawal failed');
       } finally {
         setTxLoading(false);
@@ -646,7 +651,6 @@ export default function App() {
       return;
     }
 
-    // Simulation Mode
     setBalances(prev => ({ ...prev, USDC: prev.USDC + shares }));
     setPoolStats(prev => ({
       ...prev,
@@ -654,10 +658,8 @@ export default function App() {
       availableLiquidity: Math.max(0, prev.availableLiquidity - shares),
       userShares: Math.max(0, prev.userShares - shares)
     }));
-    alert(`Redemption processed! ${shares.toLocaleString()} USDC returned to balance.`);
   };
 
-  // 6. Faucet: 1-Click Mint Mock USDC
   const handleMintMockUSDC = async () => {
     if (!account || !isRobinhoodChain) {
       alert('Please connect MetaMask to Robinhood Chain Testnet first.');
@@ -684,7 +686,6 @@ export default function App() {
     }
   };
 
-  // 7. On-chain Oracle Shock
   const handlePushOraclePriceDrop = async (percentDrop: number) => {
     if (!account || !isRobinhoodChain) {
       setPriceMultiplier(1.0 - percentDrop);
@@ -710,7 +711,6 @@ export default function App() {
       await fetchOnChainData();
     } catch (err: any) {
       console.error('Push oracle error:', err);
-      // Fallback to local multiplier
       setPriceMultiplier(1.0 - percentDrop);
     } finally {
       setTxLoading(false);
@@ -721,59 +721,81 @@ export default function App() {
   return (
     <div style={{ maxWidth: '1240px', margin: '0 auto', padding: '24px 20px 80px' }}>
       
-      {/* Institutional Header */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '20px', flexWrap: 'wrap', gap: '16px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      {/* Top Brand & Network Header */}
+      <header style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: '20px', 
+        borderBottom: '1px solid var(--border-subtle)', 
+        paddingBottom: '20px', 
+        flexWrap: 'wrap', 
+        gap: '16px' 
+      }}>
+        {/* Brand Core */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
           <div style={{ 
-            width: '42px', 
-            height: '42px', 
-            borderRadius: '10px', 
-            background: '#0f172a', 
-            border: '1px solid var(--border-strong)',
+            width: '46px', 
+            height: '46px', 
+            borderRadius: '12px', 
+            background: 'linear-gradient(135deg, #0b1329 0%, #030712 100%)', 
+            border: '1px solid var(--border-cyan-glow)',
             display: 'flex', 
             alignItems: 'center', 
             justifyContent: 'center',
-            boxShadow: '0 0 20px rgba(56, 189, 248, 0.15)'
+            boxShadow: '0 0 24px rgba(56, 189, 248, 0.2)'
           }}>
-            <Cpu size={24} color="#38bdf8" />
+            <Cpu size={26} color="#38bdf8" />
           </div>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '1.35rem', fontWeight: '800', letterSpacing: '-0.02em', background: 'linear-gradient(135deg, #f8fafc, #94a3b8)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span style={{ 
+                fontSize: '1.45rem', 
+                fontWeight: '800', 
+                letterSpacing: '-0.03em', 
+                background: 'linear-gradient(135deg, #ffffff 30%, #94a3b8 100%)', 
+                WebkitBackgroundClip: 'text', 
+                WebkitTextFillColor: 'transparent' 
+              }}>
                 OrbitRepo
               </span>
-              <span className="pill pill-green">Robinhood Chain (46630)</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} className="pill pill-green">
+                <span className="status-dot status-dot-active status-dot-pulse" />
+                <span>Robinhood Chain (46630)</span>
+              </div>
               <span className="pill pill-cyan">Arbitrum Stylus WASM</span>
             </div>
-            <div style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Institutional Fixed-Term Repo Protocol for Tokenized Equities
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px', fontWeight: '500' }}>
+              Fixed-Term Repo Protocol for Tokenized Equities • Dynamic Parametric VaR
             </div>
           </div>
         </div>
 
+        {/* Right Tools Bar */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-          {/* Mode Switcher */}
+          {/* Dual Mode Switcher */}
           <div style={{ 
             display: 'flex', 
-            background: 'var(--bg-surface-subtle)', 
+            background: 'var(--bg-surface-elevated)', 
             padding: '3px', 
             borderRadius: '8px', 
-            border: '1px solid var(--border-subtle)',
+            border: '1px solid var(--border-medium)',
             fontSize: '0.75rem'
           }}>
             <button
               onClick={() => setExecutionMode('onchain')}
               style={{
-                padding: '5px 10px',
+                padding: '6px 12px',
                 borderRadius: '6px',
                 border: 'none',
                 cursor: 'pointer',
                 background: executionMode === 'onchain' ? 'var(--accent-cyan)' : 'transparent',
-                color: executionMode === 'onchain' ? '#0f172a' : 'var(--text-secondary)',
+                color: executionMode === 'onchain' ? '#06090e' : 'var(--text-secondary)',
                 fontWeight: executionMode === 'onchain' ? '700' : '500',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '4px'
+                gap: '5px',
+                transition: 'all 0.15s'
               }}
             >
               <Zap size={13} /> Live On-Chain
@@ -781,19 +803,20 @@ export default function App() {
             <button
               onClick={() => setExecutionMode('simulated')}
               style={{
-                padding: '5px 10px',
+                padding: '6px 12px',
                 borderRadius: '6px',
                 border: 'none',
                 cursor: 'pointer',
-                background: executionMode === 'simulated' ? 'var(--bg-surface-elevated)' : 'transparent',
+                background: executionMode === 'simulated' ? 'var(--bg-surface-hover)' : 'transparent',
                 color: executionMode === 'simulated' ? 'var(--text-primary)' : 'var(--text-secondary)',
                 fontWeight: executionMode === 'simulated' ? '700' : '500',
                 display: 'flex',
                 alignItems: 'center',
-                gap: '4px'
+                gap: '5px',
+                transition: 'all 0.15s'
               }}
             >
-              ⚡ Instant Demo
+              ⚡ Simulation Lab
             </button>
           </div>
 
@@ -802,31 +825,31 @@ export default function App() {
             target="_blank" 
             rel="noreferrer" 
             className="btn btn-secondary" 
-            style={{ fontSize: '0.8125rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+            style={{ fontSize: '0.8125rem' }}
           >
-            Robinhood Faucet <ExternalLink size={13} />
+            Robinhood Faucet <ArrowUpRight size={13} />
           </a>
 
           {account && !isRobinhoodChain && (
             <button onClick={switchToRobinhoodTestnet} className="btn btn-danger" style={{ fontSize: '0.8125rem' }}>
-              Switch to Robinhood Chain (46630)
+              Switch to Robinhood (46630)
             </button>
           )}
 
           <button onClick={connectWallet} className="btn btn-secondary mono" style={{ fontSize: '0.8125rem' }}>
-            <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: account ? '#22c55e' : '#64748b' }} />
+            <Wallet size={14} color={account ? '#00c805' : '#64748b'} />
             {account ? `${account.slice(0, 6)}...${account.slice(-4)}` : (isConnecting ? 'Connecting...' : 'Connect Wallet')}
           </button>
         </div>
       </header>
 
-      {/* Transaction & Alert Status Banners */}
+      {/* Live Transaction Notifications */}
       {txLoading && (
         <div style={{ 
-          background: 'rgba(56, 189, 248, 0.1)', 
-          border: '1px solid rgba(56, 189, 248, 0.3)', 
-          borderRadius: '8px', 
-          padding: '12px 16px', 
+          background: 'rgba(56, 189, 248, 0.08)', 
+          border: '1px solid rgba(56, 189, 248, 0.35)', 
+          borderRadius: '10px', 
+          padding: '12px 18px', 
           marginBottom: '16px',
           display: 'flex',
           alignItems: 'center',
@@ -834,31 +857,31 @@ export default function App() {
           fontSize: '0.875rem'
         }}>
           <Loader2 className="animate-spin" size={18} color="#38bdf8" />
-          <span style={{ color: 'var(--accent-cyan)', fontWeight: '500' }}>{txStatusText}</span>
+          <span style={{ color: 'var(--accent-cyan-light)', fontWeight: '500' }}>{txStatusText}</span>
         </div>
       )}
 
       {lastTxHash && (
         <div style={{ 
-          background: 'rgba(34, 197, 94, 0.1)', 
-          border: '1px solid rgba(34, 197, 94, 0.3)', 
-          borderRadius: '8px', 
-          padding: '12px 16px', 
+          background: 'rgba(0, 200, 5, 0.08)', 
+          border: '1px solid rgba(0, 200, 5, 0.35)', 
+          borderRadius: '10px', 
+          padding: '12px 18px', 
           marginBottom: '16px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           fontSize: '0.8125rem'
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-green)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#4ade80' }}>
             <CheckCircle2 size={16} />
-            <span>Transaction Confirmed On-Chain!</span>
+            <span style={{ fontWeight: '600' }}>Transaction Confirmed On-Chain!</span>
           </div>
           <a 
             href={`https://explorer.testnet.chain.robinhood.com/tx/${lastTxHash}`} 
             target="_blank" 
             rel="noreferrer" 
-            style={{ color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'underline' }}
+            style={{ color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: '4px', textDecoration: 'none', fontWeight: '500' }}
           >
             View on Explorer <ExternalLink size={12} />
           </a>
@@ -867,150 +890,221 @@ export default function App() {
 
       {txError && (
         <div style={{ 
-          background: 'rgba(239, 68, 68, 0.1)', 
-          border: '1px solid rgba(239, 68, 68, 0.3)', 
-          borderRadius: '8px', 
-          padding: '12px 16px', 
+          background: 'rgba(244, 63, 94, 0.1)', 
+          border: '1px solid rgba(244, 63, 94, 0.35)', 
+          borderRadius: '10px', 
+          padding: '12px 18px', 
           marginBottom: '16px',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           fontSize: '0.8125rem',
-          color: '#f87171'
+          color: '#fda4af'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <AlertCircle size={16} />
             <span>{txError}</span>
           </div>
-          <button onClick={() => setTxError(null)} style={{ background: 'none', border: 'none', color: '#f87171', cursor: 'pointer' }}>✕</button>
+          <button onClick={() => setTxError(null)} style={{ background: 'none', border: 'none', color: '#fda4af', cursor: 'pointer', fontSize: '1rem' }}>✕</button>
         </div>
       )}
 
-      {/* Testnet Helper Bar */}
+      {/* Institutional Faucet Helper & Wallet Balances Bar */}
       <div style={{ 
-        background: 'linear-gradient(90deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.8))', 
-        border: '1px solid var(--border-subtle)', 
-        borderRadius: '8px', 
-        padding: '10px 16px', 
+        background: 'linear-gradient(90deg, #0d1527 0%, #0a1120 100%)', 
+        border: '1px solid var(--border-medium)', 
+        borderRadius: '12px', 
+        padding: '12px 18px', 
         marginBottom: '24px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         flexWrap: 'wrap',
-        gap: '12px'
+        gap: '14px',
+        boxShadow: '0 4px 18px rgba(0, 0, 0, 0.3)'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
-          <Sparkles size={16} color="#38bdf8" />
-          <span>Robinhood Chain Testnet Faucet Quick-Start:</span>
+        {/* Left: Quick Balance Chips */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8125rem', color: 'var(--text-tertiary)' }}>
+            <Coins size={15} color="#38bdf8" />
+            <span style={{ fontWeight: '600', color: 'var(--text-secondary)' }}>Wallet Balances:</span>
+          </div>
+          
+          <div className="glass-card" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+            <span style={{ color: 'var(--text-tertiary)' }}>USDC: </span>
+            <span className="mono" style={{ fontWeight: '700', color: '#ffffff' }}>
+              ${(balances.USDC || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+
+          <div className="glass-card" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+            <span style={{ color: 'var(--text-tertiary)' }}>{selectedAsset}: </span>
+            <span className="mono" style={{ fontWeight: '700', color: asset.brandColor }}>
+              {(balances[selectedAsset] || 0).toLocaleString()} Shares
+            </span>
+          </div>
+
+          <div className="glass-card" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>
+            <span style={{ color: 'var(--text-tertiary)' }}>Gas ETH: </span>
+            <span className="mono" style={{ fontWeight: '700', color: '#94a3b8' }}>
+              {(balances.ETH || 0).toFixed(4)}
+            </span>
+          </div>
         </div>
+
+        {/* Right: 1-Click Faucet Mint Action */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button 
             onClick={handleMintMockUSDC} 
             disabled={txLoading}
-            className="btn btn-secondary" 
-            style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '6px' }}
+            className="btn btn-green" 
+            style={{ fontSize: '0.75rem', padding: '6px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
-            <Coins size={13} color="#22c55e" /> Mint 10,000 Test USDC
+            <Sparkles size={13} /> Mint 10,000 Test USDC
           </button>
           <button 
             onClick={fetchOnChainData} 
             className="btn btn-secondary" 
-            style={{ fontSize: '0.75rem', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
-            title="Refresh On-Chain Balances"
+            style={{ fontSize: '0.75rem', padding: '6px 10px' }}
+            title="Sync On-Chain Balances"
           >
-            <RefreshCw size={12} /> Sync
+            <RefreshCw size={13} />
           </button>
         </div>
       </div>
 
-      {/* Protocol Metrics Strip */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '28px' }}>
-        <div className="panel" style={{ padding: '16px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>TradFi Repo Benchmark</div>
-          <div className="mono" style={{ fontSize: '1.35rem', fontWeight: '600', marginTop: '4px' }}>$4.4T / Day</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>SIFMA institutional run-rate</div>
-        </div>
-
-        <div className="panel" style={{ padding: '16px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Stylus MultiVM Risk</div>
-          <div className="mono" style={{ fontSize: '1.35rem', fontWeight: '600', marginTop: '4px', color: 'var(--accent-cyan)' }}>86.6% Gas Saved</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Rust WASM vs EVM storage loop</div>
-        </div>
-
-        <div className="panel" style={{ padding: '16px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Robinhood Pool Reserve</div>
-          <div className="mono" style={{ fontSize: '1.35rem', fontWeight: '600', marginTop: '4px' }}>
-            ${poolStats.totalAssets.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC
+      {/* Metrics Runway Strip */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px', marginBottom: '28px' }}>
+        <div className="panel" style={{ padding: '18px' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '600' }}>
+            TradFi Repo Benchmark
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-            Available: ${poolStats.availableLiquidity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '700', marginTop: '6px', color: '#f8fafc' }}>
+            $4.4T / Day
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Activity size={12} color="#00c805" /> SIFMA institutional run-rate
           </div>
         </div>
 
-        <div className="panel" style={{ padding: '16px' }}>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Canonical Assets</div>
-          <div className="mono" style={{ fontSize: '1.35rem', fontWeight: '600', marginTop: '4px' }}>5 Whitelisted</div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>AMD, AMZN, NFLX, PLTR, TSLA</div>
+        <div className="panel" style={{ padding: '18px' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '600' }}>
+            Stylus MultiVM Efficiency
+          </div>
+          <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '700', marginTop: '6px', color: 'var(--accent-cyan)' }}>
+            86.6% Gas Saved
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            Rust Babylonian Sqrt vs EVM loops
+          </div>
+        </div>
+
+        <div className="panel" style={{ padding: '18px' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '600' }}>
+            Robinhood Pool Reserves
+          </div>
+          <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '700', marginTop: '6px', color: '#f8fafc' }}>
+            ${poolStats.totalAssets.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            Liquid: ${poolStats.availableLiquidity.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC
+          </div>
+        </div>
+
+        <div className="panel" style={{ padding: '18px' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: '600' }}>
+            Canonical Equities
+          </div>
+          <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '700', marginTop: '6px', color: '#4ade80' }}>
+            5 Whitelisted
+          </div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+            AMD, AMZN, NFLX, PLTR, TSLA
+          </div>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
+      {/* Navigation Tabs */}
+      <div style={{ 
+        display: 'flex', 
+        gap: '6px', 
+        marginBottom: '22px', 
+        borderBottom: '1px solid var(--border-subtle)', 
+        paddingBottom: '10px' 
+      }}>
         <button 
           onClick={() => setActiveTab('borrow')}
           className="btn"
           style={{ 
             background: activeTab === 'borrow' ? 'var(--bg-surface-elevated)' : 'transparent',
-            color: activeTab === 'borrow' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            borderColor: activeTab === 'borrow' ? 'var(--border-strong)' : 'transparent'
+            color: activeTab === 'borrow' ? '#ffffff' : 'var(--text-secondary)',
+            borderColor: activeTab === 'borrow' ? 'var(--border-strong)' : 'transparent',
+            boxShadow: activeTab === 'borrow' ? '0 2px 8px rgba(0, 0, 0, 0.4)' : 'none',
+            fontSize: '0.85rem'
           }}
         >
-          <Layers size={16} /> Open Repo Position
+          <Layers size={16} color={activeTab === 'borrow' ? '#38bdf8' : 'currentColor'} /> 
+          Repo Desk (Borrow)
         </button>
         <button 
           onClick={() => setActiveTab('lend')}
           className="btn"
           style={{ 
             background: activeTab === 'lend' ? 'var(--bg-surface-elevated)' : 'transparent',
-            color: activeTab === 'lend' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            borderColor: activeTab === 'lend' ? 'var(--border-strong)' : 'transparent'
+            color: activeTab === 'lend' ? '#ffffff' : 'var(--text-secondary)',
+            borderColor: activeTab === 'lend' ? 'var(--border-strong)' : 'transparent',
+            boxShadow: activeTab === 'lend' ? '0 2px 8px rgba(0, 0, 0, 0.4)' : 'none',
+            fontSize: '0.85rem'
           }}
         >
-          <TrendingUp size={16} /> Liquidity Provider Pool
+          <TrendingUp size={16} color={activeTab === 'lend' ? '#00c805' : 'currentColor'} /> 
+          Lender Vault (Earn LP)
         </button>
         <button 
           onClick={() => setActiveTab('risk')}
           className="btn"
           style={{ 
             background: activeTab === 'risk' ? 'var(--bg-surface-elevated)' : 'transparent',
-            color: activeTab === 'risk' ? 'var(--text-primary)' : 'var(--text-secondary)',
-            borderColor: activeTab === 'risk' ? 'var(--border-strong)' : 'transparent'
+            color: activeTab === 'risk' ? '#ffffff' : 'var(--text-secondary)',
+            borderColor: activeTab === 'risk' ? 'var(--border-strong)' : 'transparent',
+            boxShadow: activeTab === 'risk' ? '0 2px 8px rgba(0, 0, 0, 0.4)' : 'none',
+            fontSize: '0.85rem'
           }}
         >
-          <Sliders size={16} /> Risk Engine & Stress Test
+          <Sliders size={16} color={activeTab === 'risk' ? '#f59e0b' : 'currentColor'} /> 
+          Risk Engine & Keeper Desk
         </button>
       </div>
 
-      {/* Tab 1: Borrow Form */}
+      {/* ========================================================================= */}
+      {/* TAB 1: REPO DESK (BORROW CAPITAL)                                         */}
+      {/* ========================================================================= */}
       {activeTab === 'borrow' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.45fr) minmax(0, 1fr)', gap: '22px' }}>
           
+          {/* Main Deal Slip Panel */}
           <div className="panel">
             <div className="panel-header">
-              <span style={{ fontWeight: '600' }}>Borrow Fixed-Term Capital</span>
-              <span className="pill pill-cyan">Robinhood Orbit MultiVM</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Lock size={16} color="#38bdf8" />
+                <span style={{ fontWeight: '700', fontSize: '0.9375rem' }}>Fixed-Term Repo Facility</span>
+              </div>
+              <span className="pill pill-cyan">Arbitrum Stylus MultiVM</span>
             </div>
 
             <div className="panel-body">
-              {/* Asset Selection */}
-              <div style={{ marginBottom: '18px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <label style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>Collateral Stock Token (Canonical Robinhood)</label>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-green)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              {/* Asset Selection Grid */}
+              <div style={{ marginBottom: '22px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <label style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                    Select Canonical Tokenized Stock (Robinhood Chain)
+                  </label>
+                  <span style={{ fontSize: '0.72rem', color: 'var(--accent-green)', display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <ShieldCheck size={13} /> Verified Faucet Equities
                   </span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '8px' }}>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(115px, 1fr))', gap: '8px' }}>
                   {Object.keys(SUPPORTED_ASSETS).map(sym => {
                     const item = SUPPORTED_ASSETS[sym];
                     const active = selectedAsset === sym;
@@ -1018,26 +1112,28 @@ export default function App() {
                       <div 
                         key={sym} 
                         onClick={() => setSelectedAsset(sym)}
-                        style={{
-                          padding: '10px',
-                          borderRadius: '8px',
-                          background: active ? 'var(--bg-surface-elevated)' : 'var(--bg-surface-subtle)',
-                          border: active ? '1px solid var(--accent-cyan)' : '1px solid var(--border-subtle)',
-                          cursor: 'pointer'
-                        }}
+                        className={`stock-card ${item.brandClass} ${active ? 'active' : ''}`}
                       >
-                        <div style={{ fontWeight: '700', fontSize: '0.9375rem' }}>{item.symbol}</div>
-                        <div className="mono" style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: '800', fontSize: '0.95rem', color: active ? '#ffffff' : 'var(--text-primary)' }}>
+                            {item.symbol}
+                          </span>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-tertiary)', fontWeight: '600' }}>
+                            {item.beta}
+                          </span>
+                        </div>
+                        <div className="mono" style={{ fontSize: '0.875rem', fontWeight: '700', marginTop: '4px', color: active ? 'var(--accent-cyan)' : 'var(--text-secondary)' }}>
                           ${(item.price * priceMultiplier).toFixed(2)}
                         </div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                          σ: {item.dailyVol}%/d
+                        <div style={{ fontSize: '0.68rem', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                          σ={item.dailyVol}% / day
                         </div>
                       </div>
                     );
                   })}
                 </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '10px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   Contract: <span className="mono">{asset.address}</span>
                   <a href={`https://explorer.testnet.chain.robinhood.com/address/${asset.address}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-cyan)' }}>
                     <ExternalLink size={12} />
@@ -1045,9 +1141,11 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Term Selection */}
-              <div style={{ marginBottom: '18px' }}>
-                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Fixed Term Maturity</label>
+              {/* Tenor Selection */}
+              <div style={{ marginBottom: '22px' }}>
+                <label style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '10px', fontWeight: '600' }}>
+                  Fixed Repo Term & Horizon
+                </label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
                   {[1, 7, 30].map(days => {
                     const active = termDays === days;
@@ -1056,17 +1154,24 @@ export default function App() {
                         key={days} 
                         onClick={() => setTermDays(days)}
                         style={{
-                          padding: '12px',
-                          borderRadius: '8px',
+                          padding: '12px 14px',
+                          borderRadius: '10px',
                           background: active ? 'var(--bg-surface-elevated)' : 'var(--bg-surface-subtle)',
                           border: active ? '1px solid var(--accent-green)' : '1px solid var(--border-subtle)',
                           cursor: 'pointer',
-                          textAlign: 'center'
+                          transition: 'all 0.15s'
                         }}
                       >
-                        <div style={{ fontWeight: '600', fontSize: '0.875rem' }}>{termRates[days].label}</div>
-                        <div className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                          Rate: {termRates[days].rateText}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span style={{ fontWeight: '700', fontSize: '0.875rem', color: active ? '#ffffff' : 'var(--text-primary)' }}>
+                            {termRates[days].label}
+                          </span>
+                          <span className="mono" style={{ fontSize: '0.75rem', color: active ? '#4ade80' : 'var(--text-tertiary)', fontWeight: '600' }}>
+                            {termRates[days].rateText}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px' }}>
+                          {termRates[days].tenorDesc}
                         </div>
                       </div>
                     );
@@ -1074,133 +1179,175 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Collateral Amount Input */}
-              <div style={{ marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                  <span>Pledged Collateral Amount</span>
-                  <span className="mono">
-                    Balance: {(balances[selectedAsset] || 0).toLocaleString()} {selectedAsset}
+              {/* Pledged Collateral Amount */}
+              <div style={{ marginBottom: '22px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  <span style={{ fontWeight: '600' }}>Collateral Pledge Amount</span>
+                  <span className="mono" style={{ color: 'var(--text-tertiary)' }}>
+                    Wallet Available: <strong style={{ color: '#ffffff' }}>{(balances[selectedAsset] || 0).toLocaleString()}</strong> {selectedAsset}
                   </span>
                 </div>
+
                 <div style={{ position: 'relative' }}>
                   <input 
                     type="number" 
                     value={collateralInput} 
                     onChange={e => setCollateralInput(e.target.value)}
-                    className="input-base mono" 
+                    className="input-base" 
                     placeholder="0.00"
                   />
-                  <button 
-                    onClick={() => setCollateralInput((balances[selectedAsset] || 0).toString())}
-                    style={{
-                      position: 'absolute',
-                      right: '10px',
-                      top: '50%',
-                      transform: 'translateY(-50%)',
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'var(--accent-cyan)',
-                      fontSize: '0.75rem',
-                      fontWeight: '600',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    MAX
-                  </button>
+                  <div style={{ 
+                    position: 'absolute', 
+                    right: '12px', 
+                    top: '50%', 
+                    transform: 'translateY(-50%)', 
+                    display: 'flex', 
+                    gap: '4px' 
+                  }}>
+                    <button onClick={() => handleQuickPercent(0.25)} className="btn btn-ghost" style={{ padding: '4px 6px', fontSize: '0.7rem' }}>25%</button>
+                    <button onClick={() => handleQuickPercent(0.50)} className="btn btn-ghost" style={{ padding: '4px 6px', fontSize: '0.7rem' }}>50%</button>
+                    <button onClick={() => handleQuickPercent(0.75)} className="btn btn-ghost" style={{ padding: '4px 6px', fontSize: '0.7rem' }}>75%</button>
+                    <button onClick={() => handleQuickPercent(1.00)} className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.7rem', fontWeight: '700', color: 'var(--accent-cyan)' }}>MAX</button>
+                  </div>
                 </div>
               </div>
 
-              {/* Dynamic Risk Engine Output Card */}
+              {/* Stylus Dynamic VaR Visual Risk Gauge */}
               <div style={{ 
-                background: 'var(--bg-surface-subtle)', 
-                border: '1px solid var(--border-subtle)', 
-                borderRadius: '8px', 
-                padding: '14px', 
-                marginBottom: '20px' 
+                background: 'linear-gradient(180deg, #0e1626 0%, #0a101d 100%)', 
+                border: '1px solid var(--border-medium)', 
+                borderRadius: '12px', 
+                padding: '16px', 
+                marginBottom: '22px' 
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                  <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>Stylus Dynamic Max LTV ({asset.symbol})</span>
-                  <span className="mono" style={{ fontSize: '1.2rem', fontWeight: '700', color: dynamicMaxLtv >= 70 ? 'var(--accent-green)' : 'var(--accent-amber)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Percent size={15} color="#38bdf8" />
+                    <span style={{ fontSize: '0.8125rem', fontWeight: '600', color: 'var(--text-primary)' }}>
+                      Stylus Dynamic Max LTV ({asset.symbol})
+                    </span>
+                  </div>
+                  <span className="mono" style={{ 
+                    fontSize: '1.35rem', 
+                    fontWeight: '800', 
+                    color: dynamicMaxLtv >= 70 ? 'var(--accent-green)' : (dynamicMaxLtv >= 50 ? 'var(--accent-cyan)' : 'var(--accent-amber)') 
+                  }}>
                     {dynamicMaxLtv}%
                   </span>
                 </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', lineHeight: '1.4' }}>
-                  Parametric VaR (99% CI): Calculated haircut of {rawHaircut.toFixed(1)}% applied for {termDays}-day term based on σ={asset.dailyVol}% daily volatility. Maintenance liquidation threshold at {maintenanceLtv}%.
+
+                {/* Meter visual bar */}
+                <div className="risk-meter-container" style={{ marginBottom: '12px' }}>
+                  <div 
+                    className="risk-meter-fill" 
+                    style={{ 
+                      width: `${dynamicMaxLtv}%`, 
+                      background: dynamicMaxLtv >= 70 ? 'linear-gradient(90deg, #00c805, #22c55e)' : (dynamicMaxLtv >= 50 ? 'linear-gradient(90deg, #0284c7, #38bdf8)' : 'linear-gradient(90deg, #d97706, #f59e0b)') 
+                    }} 
+                  />
+                </div>
+
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', lineHeight: '1.45' }}>
+                  <strong style={{ color: 'var(--text-secondary)' }}>Parametric VaR (99% CI):</strong> Applied haircut of <span className="mono" style={{ color: '#ffffff' }}>{rawHaircut.toFixed(1)}%</span> for {termDays}-day term derived from historical realized daily volatility (σ={asset.dailyVol}%). Maintenance buffer set at <span className="mono" style={{ color: '#ffffff' }}>{maintenanceLtv}%</span>.
                 </div>
               </div>
 
-              {/* Financial Ledger */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.8125rem', marginBottom: '22px', borderTop: '1px solid var(--border-subtle)', paddingTop: '14px' }}>
+              {/* Institutional Settlement Ticket */}
+              <div style={{ 
+                background: 'var(--bg-surface-elevated)', 
+                border: '1px solid var(--border-subtle)', 
+                borderRadius: '10px', 
+                padding: '14px 16px',
+                display: 'flex', 
+                flexDirection: 'column', 
+                gap: '10px', 
+                fontSize: '0.8125rem', 
+                marginBottom: '22px' 
+              }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Collateral Valuation:</span>
-                  <span className="mono">${collateralValueUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
+                  <span className="mono" style={{ fontWeight: '600' }}>
+                    ${collateralValueUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC
+                  </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Borrow Principal:</span>
-                  <span className="mono" style={{ fontWeight: '600', color: 'var(--accent-cyan)' }}>${maxBorrowAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>Borrow Principal Disbursed:</span>
+                  <span className="mono" style={{ fontWeight: '700', color: 'var(--accent-cyan)' }}>
+                    ${maxBorrowAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC
+                  </span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Fixed Term Yield ({termRates[termDays].rateText}):</span>
-                  <span className="mono">${fixedInterest.toFixed(2)} USDC</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>Fixed Repo Yield ({termRates[termDays].rateText}):</span>
+                  <span className="mono" style={{ fontWeight: '600' }}>
+                    ${fixedInterest.toFixed(2)} USDC
+                  </span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-subtle)', paddingTop: '8px' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontWeight: '500' }}>Settlement Obligation:</span>
-                  <span className="mono" style={{ fontWeight: '700' }}>${(maxBorrowAmount + fixedInterest).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-medium)', paddingTop: '10px' }}>
+                  <span style={{ color: 'var(--text-primary)', fontWeight: '600' }}>Settlement Obligation:</span>
+                  <span className="mono" style={{ fontWeight: '800', fontSize: '0.9375rem', color: '#ffffff' }}>
+                    ${(maxBorrowAmount + fixedInterest).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC
+                  </span>
                 </div>
               </div>
 
+              {/* Execution Button */}
               <button 
                 onClick={handleOpenRepo} 
                 disabled={txLoading}
                 className="btn btn-primary" 
-                style={{ width: '100%', padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                style={{ width: '100%', padding: '14px', fontSize: '0.9375rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
               >
                 {txLoading ? (
                   <>
-                    <Loader2 className="animate-spin" size={16} /> Processing Transaction...
+                    <Loader2 className="animate-spin" size={18} /> Processing On-Chain...
                   </>
                 ) : (
                   <>
-                    Lock Collateral & Execute Repo <ArrowRight size={16} />
+                    Lock Collateral & Execute Repo <ArrowRight size={17} />
                   </>
                 )}
               </button>
             </div>
           </div>
 
-          {/* Right Column: Comparative Risk Context & Active Positions */}
+          {/* Right Column: Comparative Market Advantage & Active Positions */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            
+            {/* Why OrbitRepo Beats Generic Lending */}
             <div className="panel">
               <div className="panel-header">
-                <span style={{ fontWeight: '600' }}>Robinhood Chain Lending Innovation</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <BarChart3 size={16} color="#00c805" />
+                  <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>Ecosystem Architecture</span>
+                </div>
               </div>
               <div className="panel-body" style={{ fontSize: '0.8125rem', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--bg-surface-subtle)', border: '1px solid var(--border-subtle)' }}>
-                  <div style={{ fontWeight: '600', color: 'var(--text-secondary)' }}>Generic Lending (Aave / Morpho Flat LTV)</div>
-                  <div style={{ color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                    Treats all equity collaterals with static parameters. Earnings gap drops in high-beta stocks (TSLA, PLTR) easily trigger undercollateralized insolvency.
+                <div style={{ padding: '12px 14px', borderRadius: '8px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-subtle)' }}>
+                  <div style={{ fontWeight: '700', color: 'var(--text-secondary)' }}>Generic Lending (Aave / Morpho Flat LTV)</div>
+                  <div style={{ color: 'var(--text-tertiary)', marginTop: '4px', lineHeight: '1.45' }}>
+                    Standard pools apply a uniform 75% LTV to all assets. For high-beta equities (TSLA, PLTR), an earnings gap down easily triggers sudden insolvency.
                   </div>
                 </div>
 
-                <div style={{ padding: '12px', borderRadius: '8px', background: 'var(--accent-cyan-subtle)', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
-                  <div style={{ fontWeight: '600', color: 'var(--accent-cyan)' }}>OrbitRepo Stylus Parametric VaR</div>
-                  <div style={{ color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Dynamically prices market risk per asset: <strong>AMZN (lower vol) unlocks higher borrowing power (73.5%)</strong>, while <strong>PLTR and TSLA require higher haircuts</strong> to guarantee pool solvency.
+                <div style={{ padding: '12px 14px', borderRadius: '8px', background: 'var(--accent-cyan-subtle)', border: '1px solid rgba(56, 189, 248, 0.25)' }}>
+                  <div style={{ fontWeight: '700', color: 'var(--accent-cyan)' }}>OrbitRepo Stylus Parametric VaR</div>
+                  <div style={{ color: 'var(--text-secondary)', marginTop: '4px', lineHeight: '1.45' }}>
+                    Dynamically prices individual risk: <strong>AMZN (lower volatility) unlocks higher borrowing power (73.5%)</strong>, while <strong>PLTR requires higher haircuts</strong> to ensure 100% pool solvency.
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Active Positions */}
+            {/* Your Active Positions */}
             <div className="panel">
               <div className="panel-header">
-                <span style={{ fontWeight: '600' }}>Your Active Positions</span>
-                <span className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{positions.length} Active</span>
+                <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>Active Repo Positions</span>
+                <span className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{positions.length} Active</span>
               </div>
               <div className="panel-body" style={{ padding: '0' }}>
                 {positions.length === 0 ? (
-                  <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8125rem' }}>
-                    No active repo positions found.
+                  <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8125rem' }}>
+                    No active repo positions found for this account.
                   </div>
                 ) : (
                   positions.map(pos => {
@@ -1211,21 +1358,21 @@ export default function App() {
                     return (
                       <div key={pos.id} style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontWeight: '600', fontSize: '0.875rem' }}>
-                            Position #{pos.id} — {pos.collateralAmt} {pos.asset}
+                          <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>
+                            Position #{pos.id} • {pos.collateralAmt} {pos.asset}
                           </span>
                           <span className={isLiquidatable ? 'pill pill-red' : 'pill pill-green'}>
                             {isLiquidatable ? 'Liquidatable' : 'Healthy'}
                           </span>
                         </div>
-                        <div className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '10px' }}>
-                          Debt: ${pos.debt.toFixed(2)} USDC | Current LTV: <strong>{currentLtv.toFixed(1)}%</strong> (Max: {pos.maxLtv}%)
+                        <div className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                          Debt: ${pos.debt.toFixed(2)} USDC | LTV: <strong style={{ color: isLiquidatable ? 'var(--accent-rose)' : '#ffffff' }}>{currentLtv.toFixed(1)}%</strong> (Max: {pos.maxLtv}%)
                         </div>
                         <button 
                           onClick={() => handleRepay(pos.id)} 
                           disabled={txLoading}
                           className="btn btn-secondary" 
-                          style={{ width: '100%', fontSize: '0.75rem', padding: '6px 12px' }}
+                          style={{ width: '100%', fontSize: '0.75rem', padding: '7px 12px' }}
                         >
                           Settle & Reclaim Collateral
                         </button>
@@ -1241,44 +1388,48 @@ export default function App() {
         </div>
       )}
 
-      {/* Tab 2: LP Pool */}
+      {/* ========================================================================= */}
+      {/* TAB 2: LENDER VAULT (LIQUIDITY PROVIDER DESK)                             */}
+      {/* ========================================================================= */}
       {activeTab === 'lend' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.4fr) minmax(0, 1fr)', gap: '20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.45fr) minmax(0, 1fr)', gap: '22px' }}>
           <div className="panel">
             <div className="panel-header">
-              <span style={{ fontWeight: '600' }}>Robinhood Fixed-Yield Liquidity Pool</span>
-              <span className="pill pill-green">ERC-4626 Compatible</span>
+              <span style={{ fontWeight: '700', fontSize: '0.9375rem' }}>Robinhood Fixed-Yield Reserve Vault</span>
+              <span className="pill pill-green">ERC-4626 Native</span>
             </div>
             <div className="panel-body">
-              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '20px', lineHeight: '1.5' }}>
-                Supply USDC to back short-term institutional repo obligations for Robinhood tokenized equities. Unlike variable DeFi lending markets, repo yield is locked at the moment of borrowing, creating predictable bond-like yield profiles.
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '22px', lineHeight: '1.5' }}>
+                Supply USDC to back short-term institutional repo obligations for Robinhood tokenized equities. Unlike variable DeFi lending markets, repo yield is locked at the moment of borrowing, creating deterministic bond-like returns.
               </p>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '20px' }}>
-                <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--bg-surface-subtle)', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>Overnight APY</div>
-                  <div className="mono" style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--accent-green)', marginTop: '4px' }}>5.40%</div>
+              {/* APY Tiers */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '22px' }}>
+                <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: '600' }}>Overnight APY</div>
+                  <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--accent-green)', marginTop: '4px' }}>5.40%</div>
                 </div>
-                <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--bg-surface-subtle)', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>7-Day APY</div>
-                  <div className="mono" style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--accent-green)', marginTop: '4px' }}>7.80%</div>
+                <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: '600' }}>7-Day APY</div>
+                  <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--accent-green)', marginTop: '4px' }}>7.80%</div>
                 </div>
-                <div style={{ padding: '14px', borderRadius: '8px', background: 'var(--bg-surface-subtle)', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>30-Day APY</div>
-                  <div className="mono" style={{ fontSize: '1.25rem', fontWeight: '700', color: 'var(--accent-green)', marginTop: '4px' }}>7.30%</div>
+                <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: '600' }}>30-Day APY</div>
+                  <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--accent-green)', marginTop: '4px' }}>7.30%</div>
                 </div>
               </div>
 
-              <div style={{ marginBottom: '20px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                  <span>Deposit Stablecoin (USDC)</span>
-                  <span className="mono">Balance: {(balances.USDC || 0).toLocaleString()} USDC</span>
+              {/* Deposit Input */}
+              <div style={{ marginBottom: '22px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>
+                  <span style={{ fontWeight: '600' }}>Deposit Stablecoin (USDC)</span>
+                  <span className="mono">Balance: ${(balances.USDC || 0).toLocaleString()} USDC</span>
                 </div>
                 <input 
                   type="number" 
                   value={depositAmountInput} 
                   onChange={e => setDepositAmountInput(e.target.value)}
-                  className="input-base mono" 
+                  className="input-base" 
                   placeholder="0.00" 
                 />
               </div>
@@ -1287,55 +1438,58 @@ export default function App() {
                 onClick={handleDepositLiquidity} 
                 disabled={txLoading}
                 className="btn btn-primary" 
-                style={{ width: '100%', padding: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                style={{ width: '100%', padding: '14px', fontSize: '0.9375rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
               >
-                {txLoading ? <Loader2 className="animate-spin" size={16} /> : null}
-                Deposit Liquidity to Pool
+                {txLoading ? <Loader2 className="animate-spin" size={18} /> : null}
+                Supply Liquidity & Mint LP Shares <ChevronRight size={16} />
               </button>
             </div>
           </div>
 
+          {/* LP Share Account Status */}
           <div className="panel">
             <div className="panel-header">
-              <span style={{ fontWeight: '600' }}>Your LP Share Account</span>
+              <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>Your LP Position</span>
             </div>
             <div className="panel-body">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', fontSize: '0.8125rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Your LP Shares:</span>
-                  <span className="mono" style={{ fontWeight: '600' }}>
-                    {poolStats.userShares.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} LP
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>LP Shares Held:</span>
+                  <span className="mono" style={{ fontWeight: '700' }}>
+                    {poolStats.userShares.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ORBIT-LP
                   </span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
                   <span style={{ color: 'var(--text-secondary)' }}>Principal Value:</span>
-                  <span className="mono" style={{ fontWeight: '600' }}>
+                  <span className="mono" style={{ fontWeight: '700' }}>
                     ${poolStats.userShares.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC
                   </span>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '10px' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Total Pool Liquidity:</span>
-                  <span className="mono" style={{ fontWeight: '600', color: 'var(--accent-green)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Total Pool Reserves:</span>
+                  <span className="mono" style={{ fontWeight: '700', color: 'var(--accent-green)' }}>
                     ${poolStats.totalAssets.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USDC
                   </span>
                 </div>
 
-                <div style={{ marginTop: '8px' }}>
-                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>Withdraw Shares</label>
+                <div style={{ marginTop: '10px' }}>
+                  <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '6px', fontWeight: '600' }}>
+                    Redeem LP Shares for USDC
+                  </label>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <input 
                       type="number" 
                       value={withdrawSharesInput} 
                       onChange={e => setWithdrawSharesInput(e.target.value)}
-                      className="input-base mono" 
-                      style={{ padding: '8px' }}
+                      className="input-base" 
+                      style={{ padding: '10px 14px' }}
                       placeholder="Shares" 
                     />
                     <button 
                       onClick={handleWithdrawLiquidity} 
                       disabled={txLoading}
                       className="btn btn-secondary" 
-                      style={{ whiteSpace: 'nowrap' }}
+                      style={{ whiteSpace: 'nowrap', padding: '10px 16px' }}
                     >
                       Redeem
                     </button>
@@ -1347,118 +1501,175 @@ export default function App() {
         </div>
       )}
 
-      {/* Tab 3: Risk Engine & Liquidation Monitor */}
+      {/* ========================================================================= */}
+      {/* TAB 3: RISK ENGINE & KEEPER LIQUIDATION DESK                              */}
+      {/* ========================================================================= */}
       {activeTab === 'risk' && (
         <div className="panel">
           <div className="panel-header">
             <div>
-              <span style={{ fontWeight: '600', fontSize: '1rem' }}>Stress Testing & Liquidation Keeper Monitor</span>
+              <span style={{ fontWeight: '700', fontSize: '1rem' }}>Stress Testing & Liquidation Keeper Desk</span>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                 Simulate equity market shocks to verify Stylus dynamic margin enforcement and permissionless liquidations.
               </div>
             </div>
-            <span className="pill pill-cyan mono">Oracle Feed: Live</span>
+            <span className="pill pill-cyan mono">Oracle Feed: Active</span>
           </div>
 
           <div className="panel-body">
             {/* Scenario buttons */}
-            <div style={{ marginBottom: '24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>Market Price Adjustment ({selectedAsset}):</span>
+            <div style={{ marginBottom: '26px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                  Market Shock Scenarios ({selectedAsset}):
+                </span>
                 {executionMode === 'onchain' && account && (
-                  <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)' }}>
-                    Clicking a shock scenario updates the price feed
+                  <span style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)' }}>
+                    On-chain updates trigger real MockPriceOracle.setPrice()
                   </span>
                 )}
               </div>
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button onClick={() => handlePushOraclePriceDrop(0.0)} className={`btn ${priceMultiplier === 1.0 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem' }}>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                <button onClick={() => handlePushOraclePriceDrop(0.0)} className={`btn ${priceMultiplier === 1.0 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.78rem' }}>
                   Baseline Market (0%)
                 </button>
-                <button onClick={() => handlePushOraclePriceDrop(0.15)} className={`btn ${priceMultiplier === 0.85 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem' }}>
+                <button onClick={() => handlePushOraclePriceDrop(0.15)} className={`btn ${priceMultiplier === 0.85 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.78rem' }}>
                   Mild Correction (-15%)
                 </button>
-                <button onClick={() => handlePushOraclePriceDrop(0.30)} className={`btn ${priceMultiplier === 0.70 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem' }}>
+                <button onClick={() => handlePushOraclePriceDrop(0.30)} className={`btn ${priceMultiplier === 0.70 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.78rem' }}>
                   Earnings Gap Shock (-30%)
                 </button>
-                <button onClick={() => handlePushOraclePriceDrop(0.45)} className={`btn ${priceMultiplier === 0.55 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.75rem' }}>
+                <button onClick={() => handlePushOraclePriceDrop(0.45)} className={`btn ${priceMultiplier === 0.55 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.78rem' }}>
                   Black Swan Drop (-45%)
                 </button>
               </div>
             </div>
 
             {/* Position Monitoring Table */}
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Position</th>
-                  <th>Collateral</th>
-                  <th>Valuation</th>
-                  <th>Debt</th>
-                  <th>Current LTV</th>
-                  <th>Maintenance Threshold</th>
-                  <th>Solvency Status</th>
-                  <th>Keeper Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {positions.map(pos => {
-                  const currentVal = pos.collateralAmt * currentPrice;
-                  const currentLtv = (pos.debt / currentVal) * 100;
-                  const threshold = pos.maxLtv + 5.0;
-                  const isLiquidatable = currentLtv > threshold;
+            <div style={{ overflowX: 'auto' }}>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Position ID</th>
+                    <th>Collateral Asset</th>
+                    <th>Valuation</th>
+                    <th>Debt (USDC)</th>
+                    <th>Live LTV</th>
+                    <th>Maintenance Threshold</th>
+                    <th>Solvency Status</th>
+                    <th>Keeper Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {positions.map(pos => {
+                    const currentVal = pos.collateralAmt * currentPrice;
+                    const currentLtv = (pos.debt / currentVal) * 100;
+                    const threshold = pos.maxLtv + 5.0;
+                    const isLiquidatable = currentLtv > threshold;
 
-                  return (
-                    <tr key={pos.id}>
-                      <td className="mono" style={{ fontWeight: '600' }}>#{pos.id}</td>
-                      <td>{pos.collateralAmt} {pos.asset}</td>
-                      <td className="mono">${currentVal.toFixed(2)}</td>
-                      <td className="mono">${pos.debt.toFixed(2)}</td>
-                      <td className="mono" style={{ fontWeight: '600', color: isLiquidatable ? 'var(--accent-red)' : 'var(--text-primary)' }}>
-                        {currentLtv.toFixed(1)}%
-                      </td>
-                      <td className="mono" style={{ color: 'var(--text-secondary)' }}>{threshold.toFixed(1)}%</td>
-                      <td>
-                        <span className={isLiquidatable ? 'pill pill-red' : 'pill pill-green'}>
-                          {isLiquidatable ? 'Liquidatable' : 'Solvent'}
-                        </span>
-                      </td>
-                      <td>
-                        {isLiquidatable ? (
-                          <button 
-                            onClick={() => handleLiquidate(pos.id)} 
-                            disabled={txLoading}
-                            className="btn btn-danger" 
-                            style={{ fontSize: '0.75rem', padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                          >
-                            {txLoading ? <Loader2 className="animate-spin" size={12} /> : null}
-                            Execute Liquidation ($240 Bounty)
-                          </button>
-                        ) : (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>No action required</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr key={pos.id}>
+                        <td className="mono" style={{ fontWeight: '700' }}>#{pos.id}</td>
+                        <td>
+                          <span style={{ fontWeight: '700', color: SUPPORTED_ASSETS[pos.asset]?.brandColor || '#ffffff' }}>
+                            {pos.collateralAmt} {pos.asset}
+                          </span>
+                        </td>
+                        <td className="mono">${currentVal.toFixed(2)}</td>
+                        <td className="mono">${pos.debt.toFixed(2)}</td>
+                        <td className="mono" style={{ fontWeight: '700', color: isLiquidatable ? 'var(--accent-rose)' : '#ffffff' }}>
+                          {currentLtv.toFixed(1)}%
+                        </td>
+                        <td className="mono" style={{ color: 'var(--text-tertiary)' }}>{threshold.toFixed(1)}%</td>
+                        <td>
+                          <span className={isLiquidatable ? 'pill pill-red' : 'pill pill-green'}>
+                            {isLiquidatable ? 'Liquidatable' : 'Solvent'}
+                          </span>
+                        </td>
+                        <td>
+                          {isLiquidatable ? (
+                            <button 
+                              onClick={() => handleLiquidate(pos.id)} 
+                              disabled={txLoading}
+                              className="btn btn-danger" 
+                              style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                            >
+                              {txLoading ? <Loader2 className="animate-spin" size={12} /> : null}
+                              Execute Liquidation ($240 Bounty)
+                            </button>
+                          ) : (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Position Healthy</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Stylus WASM Benchmarking Strip */}
+            <div style={{ 
+              marginTop: '26px', 
+              padding: '16px', 
+              borderRadius: '10px', 
+              background: 'var(--bg-surface-elevated)', 
+              border: '1px solid var(--border-subtle)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '14px'
+            }}>
+              <div>
+                <div style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-primary)' }}>
+                  Arbitrum Stylus MultiVM Gas Benchmark
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '2px' }}>
+                  Execution Cost of 30-Day Parametric VaR calculation across 30 historical price buffers
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>Standard EVM Solidity</div>
+                  <div className="mono" style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textDecoration: 'line-through' }}>288,400 gas</div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)' }}>Arbitrum Stylus (Rust WASM)</div>
+                  <div className="mono" style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--accent-green)' }}>38,500 gas (-86.6%)</div>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       )}
 
-      {/* Footer */}
-      <footer style={{ marginTop: '50px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--text-tertiary)', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          OrbitRepo Protocol | Arbitrum Stylus MultiVM on Robinhood Chain
+      {/* Institutional Footer */}
+      <footer style={{ 
+        marginTop: '60px', 
+        paddingTop: '24px', 
+        borderTop: '1px solid var(--border-subtle)', 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        fontSize: '0.78rem', 
+        color: 'var(--text-tertiary)', 
+        flexWrap: 'wrap', 
+        gap: '14px' 
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>OrbitRepo Protocol</span>
+          <span>•</span>
+          <span>Arbitrum Open House Singapore Online Buildathon</span>
         </div>
         <div className="mono">
-          Settlement: 46630 (Robinhood Chain Testnet) | Vault:{' '}
+          Settlement: 46630 (Robinhood Chain Testnet) | RepoVault:{' '}
           <a 
             href={`https://explorer.testnet.chain.robinhood.com/address/${addresses.repoVault}`} 
             target="_blank" 
             rel="noreferrer" 
-            style={{ color: 'var(--accent-cyan)' }}
+            style={{ color: 'var(--accent-cyan)', textDecoration: 'none' }}
           >
             {addresses.repoVault ? `${addresses.repoVault.slice(0, 10)}...` : 'Deployed'}
           </a>
