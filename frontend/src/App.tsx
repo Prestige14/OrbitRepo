@@ -124,7 +124,21 @@ interface RepoPosition {
   maxLtv: number;
   maturityDate: string;
   isClosed?: boolean;
+  borrower?: string;
 }
+
+const MOCK_POSITIONS: RepoPosition[] = [
+  {
+    id: 1,
+    asset: 'TSLA',
+    collateralAmt: 25,
+    debt: 3630.00,
+    termDays: 30,
+    openedPrice: 245.00,
+    maxLtv: 59.3,
+    maturityDate: 'Oct 28, 2026'
+  }
+];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'borrow' | 'lend' | 'risk'>('borrow');
@@ -171,19 +185,8 @@ export default function App() {
   // Stress test multiplier for price feed
   const [priceMultiplier, setPriceMultiplier] = useState<number>(1.0);
 
-  // Active positions
-  const [positions, setPositions] = useState<RepoPosition[]>([
-    {
-      id: 1,
-      asset: 'TSLA',
-      collateralAmt: 25,
-      debt: 3630.00,
-      termDays: 30,
-      openedPrice: 245.00,
-      maxLtv: 59.3,
-      maturityDate: 'Oct 28, 2026'
-    }
-  ]);
+  // Active positions (Empty initially in Live On-Chain mode until loaded from blockchain)
+  const [positions, setPositions] = useState<RepoPosition[]>([]);
 
   const asset = SUPPORTED_ASSETS[selectedAsset];
   const currentPrice = asset.price * priceMultiplier;
@@ -248,7 +251,7 @@ export default function App() {
           const bal = await tokContract.balanceOf(account);
           newBalances[sym] = parseFloat(formatUnits(bal, 18));
         } catch {
-          newBalances[sym] = balances[sym] || 0;
+          newBalances[sym] = 0;
         }
       }
       setBalances(prev => ({ ...prev, ...newBalances }));
@@ -277,11 +280,11 @@ export default function App() {
         const totalPos = Number(nextId);
         const onChainPosList: RepoPosition[] = [];
 
-        const startPos = Math.max(1, totalPos - 15);
+        const startPos = Math.max(1, totalPos - 25);
         for (let i = totalPos - 1; i >= startPos; i--) {
           try {
             const p = await vaultContract.positions(i);
-            if (!p.isClosed && p.borrower.toLowerCase() === account.toLowerCase()) {
+            if (!p.isClosed && p.borrower !== '0x0000000000000000000000000000000000000000') {
               const sym = Object.keys(SUPPORTED_ASSETS).find(
                 s => SUPPORTED_ASSETS[s].address.toLowerCase() === p.collateralAsset.toLowerCase()
               ) || 'EQUITY';
@@ -303,7 +306,8 @@ export default function App() {
                 termDays: Number(p.termDays),
                 openedPrice: SUPPORTED_ASSETS[sym]?.price || 100,
                 maxLtv: ltvVal,
-                maturityDate: matDate
+                maturityDate: matDate,
+                borrower: p.borrower
               });
             }
           } catch {
@@ -311,7 +315,7 @@ export default function App() {
           }
         }
 
-        if (onChainPosList.length > 0) {
+        if (executionMode === 'onchain') {
           setPositions(onChainPosList);
         }
       } catch (err) {
@@ -321,7 +325,23 @@ export default function App() {
     } catch (err) {
       console.warn('Failed to fetch on-chain balances:', err);
     }
-  }, [account, isRobinhoodChain, balances]);
+  }, [account, isRobinhoodChain, executionMode]);
+
+  const handleSwitchMode = (mode: 'onchain' | 'simulated') => {
+    setExecutionMode(mode);
+    setTxError(null);
+    if (mode === 'onchain') {
+      if (account && isRobinhoodChain) {
+        fetchOnChainData();
+      } else {
+        setPositions([]);
+      }
+    } else {
+      if (positions.length === 0) {
+        setPositions(MOCK_POSITIONS);
+      }
+    }
+  };
 
   // Initial wallet detection
   useEffect(() => {
@@ -487,28 +507,53 @@ export default function App() {
       try {
         setTxLoading(true);
         const signer = await getSigner();
-        const usdcContract = new Contract(addresses.usdc, ERC20_ABI, signer);
         const vaultContract = new Contract(addresses.repoVault, REPO_VAULT_ABI, signer);
-        const debtWei = parseUnits(pos.debt.toFixed(6), 6);
+        const usdcContract = new Contract(addresses.usdc, ERC20_ABI, signer);
 
-        setTxStatusText(`Step 1/2: Checking USDC allowance for repayment...`);
+        // Pre-flight check on-chain position existence & ownership
+        setTxStatusText(`Memvalidasi status Posisi #${id} di smart contract...`);
+        const onChainPos = await vaultContract.positions(id);
+        
+        if (onChainPos.borrower === '0x0000000000000000000000000000000000000000') {
+          throw new Error(`Posisi #${id} belum pernah dibuat di blockchain (placeholder data). Silakan buka posisi repo baru di panel kiri terlebih dahulu.`);
+        }
+        if (onChainPos.borrower.toLowerCase() !== account.toLowerCase()) {
+          throw new Error(`Posisi #${id} bukan milik wallet Anda (${onChainPos.borrower.slice(0, 6)}...${onChainPos.borrower.slice(-4)}). Hanya peminjam asli yang berhak melunasi dan menebus agunan.`);
+        }
+        if (onChainPos.isClosed) {
+          throw new Error(`Posisi #${id} sudah pernah dilunasi atau ditutup sebelumnya.`);
+        }
+
+        const debtWei = parseUnits(pos.debt.toFixed(6), 6);
+        const userUsdcBal = await usdcContract.balanceOf(account);
+        if (userUsdcBal < debtWei) {
+          throw new Error(`Saldo USDC Anda tidak mencukupi untuk melunasi posisi #${id}. Dibutuhkan $${pos.debt.toFixed(2)} USDC.`);
+        }
+
+        setTxStatusText(`Step 1/2: Memeriksa approval USDC untuk pelunasan...`);
         const allowance = await usdcContract.allowance(account, addresses.repoVault);
         if (allowance < debtWei) {
-          setTxStatusText(`Step 1/2: Approving USDC in MetaMask...`);
+          setTxStatusText(`Step 1/2: Menyetujui (Approve) USDC di MetaMask...`);
           const approveTx = await usdcContract.approve(addresses.repoVault, debtWei);
           await approveTx.wait();
         }
 
-        setTxStatusText(`Step 2/2: Confirming repayment on Robinhood Chain...`);
+        setTxStatusText(`Step 2/2: Mengonfirmasi pelunasan posisi #${id} di Robinhood Chain...`);
         const tx = await vaultContract.repay(id);
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
 
         await fetchOnChainData();
-        setPositions(positions.filter(p => p.id !== id));
       } catch (err: any) {
         console.error('Repay error:', err);
-        setTxError(err.reason || err.message || 'Repay failed');
+        const msg = err.reason || err.message || 'Repay failed';
+        if (msg.includes('0x82b42900') || msg.includes('Unauthorized')) {
+          setTxError('Unauthorized (0x82b42900): Posisi ini belum terdaftar di blockchain atau bukan milik wallet Anda.');
+        } else if (msg.includes('0x9e684275') || msg.includes('PositionClosed')) {
+          setTxError('PositionClosed (0x9e684275): Posisi ini sudah dilunasi/ditutup sebelumnya.');
+        } else {
+          setTxError(msg);
+        }
       } finally {
         setTxLoading(false);
         setTxStatusText('');
@@ -539,27 +584,49 @@ export default function App() {
       try {
         setTxLoading(true);
         const signer = await getSigner();
-        const usdcContract = new Contract(addresses.usdc, ERC20_ABI, signer);
         const vaultContract = new Contract(addresses.repoVault, REPO_VAULT_ABI, signer);
+        const usdcContract = new Contract(addresses.usdc, ERC20_ABI, signer);
+
+        // Pre-flight check
+        setTxStatusText(`Memeriksa kelayakan likuidasi Posisi #${id} on-chain...`);
+        const onChainPos = await vaultContract.positions(id);
+        if (onChainPos.borrower === '0x0000000000000000000000000000000000000000') {
+          throw new Error(`Posisi #${id} tidak ditemukan di smart contract.`);
+        }
+        if (onChainPos.isClosed) {
+          throw new Error(`Posisi #${id} sudah pernah ditutup/dilikuidasi.`);
+        }
+
+        const health = await vaultContract.getPositionHealth(id);
+        if (!health.isLiquidatable) {
+          throw new Error(`Posisi #${id} masih sehat (LTV: ${(Number(health.currentLtvBps) / 100).toFixed(1)}%, Batas: ${(Number(health.liquidationThresholdBps) / 100).toFixed(1)}%). Belum dapat dilikuidasi.`);
+        }
+
         const debtWei = parseUnits(pos.debt.toFixed(6), 6);
 
-        setTxStatusText(`Approving USDC for keeper liquidation...`);
+        setTxStatusText(`Menyetujui USDC untuk eksekusi likuidasi keeper...`);
         const allowance = await usdcContract.allowance(account, addresses.repoVault);
         if (allowance < debtWei) {
           const approveTx = await usdcContract.approve(addresses.repoVault, debtWei);
           await approveTx.wait();
         }
 
-        setTxStatusText(`Executing keeper liquidation on-chain...`);
+        setTxStatusText(`Mengeksekusi likuidasi keeper di Robinhood Chain...`);
         const tx = await vaultContract.liquidate(id);
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
 
         await fetchOnChainData();
-        setPositions(positions.filter(p => p.id !== id));
       } catch (err: any) {
         console.error('Liquidation error:', err);
-        setTxError(err.reason || err.message || 'Liquidation failed');
+        const msg = err.reason || err.message || 'Liquidation failed';
+        if (msg.includes('0x6415f959') || msg.includes('PositionNotLiquidatable')) {
+          setTxError('PositionNotLiquidatable (0x6415f959): Posisi masih sehat (LTV belum menembus threshold likuidasi). Geser slider drop harga terlebih dahulu untuk mensimulasikan krisis pasar.');
+        } else if (msg.includes('0x9e684275') || msg.includes('PositionClosed')) {
+          setTxError('PositionClosed (0x9e684275): Posisi sudah ditutup.');
+        } else {
+          setTxError(msg);
+        }
       } finally {
         setTxLoading(false);
         setTxStatusText('');
@@ -783,7 +850,7 @@ export default function App() {
             fontSize: '0.75rem'
           }}>
             <button
-              onClick={() => setExecutionMode('onchain')}
+              onClick={() => handleSwitchMode('onchain')}
               style={{
                 padding: '6px 12px',
                 borderRadius: '6px',
@@ -801,7 +868,7 @@ export default function App() {
               <Zap size={13} /> Live On-Chain
             </button>
             <button
-              onClick={() => setExecutionMode('simulated')}
+              onClick={() => handleSwitchMode('simulated')}
               style={{
                 padding: '6px 12px',
                 borderRadius: '6px',
@@ -1342,15 +1409,29 @@ export default function App() {
             <div className="panel">
               <div className="panel-header">
                 <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>Active Repo Positions</span>
-                <span className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>{positions.length} Active</span>
+                <span className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                  {positions.filter(p => !p.borrower || (account && p.borrower.toLowerCase() === account.toLowerCase())).length} Active
+                </span>
               </div>
               <div className="panel-body" style={{ padding: '0' }}>
-                {positions.length === 0 ? (
-                  <div style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8125rem' }}>
-                    No active repo positions found for this account.
-                  </div>
-                ) : (
-                  positions.map(pos => {
+                {(() => {
+                  const userPositions = positions.filter(p => !p.borrower || (account && p.borrower.toLowerCase() === account.toLowerCase()));
+                  if (userPositions.length === 0) {
+                    return (
+                      <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8125rem' }}>
+                        <div style={{ marginBottom: '8px', fontSize: '1.6rem' }}>📦</div>
+                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                          {executionMode === 'onchain' ? 'Belum Ada Posisi On-Chain Aktif' : 'Tidak Ada Posisi Simulasi'}
+                        </div>
+                        <div style={{ maxWidth: '320px', margin: '0 auto', color: 'var(--text-secondary)', lineHeight: '1.45' }}>
+                          {executionMode === 'onchain' 
+                            ? 'Kunci agunan saham di panel kiri lalu klik "Lock Collateral & Execute Repo" untuk meminjam USDC on-chain.' 
+                            : 'Gunakan formulir di sebelah kiri untuk membuka pinjaman simulasi.'}
+                        </div>
+                      </div>
+                    );
+                  }
+                  return userPositions.map(pos => {
                     const currentVal = pos.collateralAmt * currentPrice;
                     const currentLtv = (pos.debt / currentVal) * 100;
                     const isLiquidatable = currentLtv > (pos.maxLtv + 5.0);
@@ -1378,8 +1459,8 @@ export default function App() {
                         </button>
                       </div>
                     );
-                  })
-                )}
+                  });
+                })()}
               </div>
             </div>
 
@@ -1561,49 +1642,63 @@ export default function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {positions.map(pos => {
-                    const currentVal = pos.collateralAmt * currentPrice;
-                    const currentLtv = (pos.debt / currentVal) * 100;
-                    const threshold = pos.maxLtv + 5.0;
-                    const isLiquidatable = currentLtv > threshold;
+                  {positions.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
+                        <div style={{ marginBottom: '8px', fontSize: '1.6rem' }}>🛡️</div>
+                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                          Belum Ada Posisi Repo yang Diawasi
+                        </div>
+                        <div style={{ maxWidth: '440px', margin: '0 auto', color: 'var(--text-secondary)', lineHeight: '1.45' }}>
+                          Buka posisi pinjaman di tab <strong>Borrower Desk</strong> terlebih dahulu. Setelah posisi dibuat, kembali ke tab ini dan gunakan slider penurunan harga di atas untuk mensimulasikan likuidasi keeper.
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    positions.map(pos => {
+                      const currentVal = pos.collateralAmt * currentPrice;
+                      const currentLtv = (pos.debt / currentVal) * 100;
+                      const threshold = pos.maxLtv + 5.0;
+                      const isLiquidatable = currentLtv > threshold;
 
-                    return (
-                      <tr key={pos.id}>
-                        <td className="mono" style={{ fontWeight: '700' }}>#{pos.id}</td>
-                        <td>
-                          <span style={{ fontWeight: '700', color: SUPPORTED_ASSETS[pos.asset]?.brandColor || '#ffffff' }}>
-                            {pos.collateralAmt} {pos.asset}
-                          </span>
-                        </td>
-                        <td className="mono">${currentVal.toFixed(2)}</td>
-                        <td className="mono">${pos.debt.toFixed(2)}</td>
-                        <td className="mono" style={{ fontWeight: '700', color: isLiquidatable ? 'var(--accent-rose)' : '#ffffff' }}>
-                          {currentLtv.toFixed(1)}%
-                        </td>
-                        <td className="mono" style={{ color: 'var(--text-tertiary)' }}>{threshold.toFixed(1)}%</td>
-                        <td>
-                          <span className={isLiquidatable ? 'pill pill-red' : 'pill pill-green'}>
-                            {isLiquidatable ? 'Liquidatable' : 'Solvent'}
-                          </span>
-                        </td>
-                        <td>
-                          {isLiquidatable ? (
-                            <button 
-                              onClick={() => handleLiquidate(pos.id)} 
-                              disabled={txLoading}
-                              className="btn btn-danger" 
-                              style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                            >
-                              {txLoading ? <Loader2 className="animate-spin" size={12} /> : null}
-                              Execute Liquidation ($240 Bounty)
-                            </button>
-                          ) : (
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Position Healthy</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                      return (
+                        <tr key={pos.id}>
+                          <td className="mono" style={{ fontWeight: '700' }}>#{pos.id}</td>
+                          <td>
+                            <span style={{ fontWeight: '700', color: SUPPORTED_ASSETS[pos.asset]?.brandColor || '#ffffff' }}>
+                              {pos.collateralAmt} {pos.asset}
+                            </span>
+                          </td>
+                          <td className="mono">${currentVal.toFixed(2)}</td>
+                          <td className="mono">${pos.debt.toFixed(2)}</td>
+                          <td className="mono" style={{ fontWeight: '700', color: isLiquidatable ? 'var(--accent-rose)' : '#ffffff' }}>
+                            {currentLtv.toFixed(1)}%
+                          </td>
+                          <td className="mono" style={{ color: 'var(--text-tertiary)' }}>{threshold.toFixed(1)}%</td>
+                          <td>
+                            <span className={isLiquidatable ? 'pill pill-red' : 'pill pill-green'}>
+                              {isLiquidatable ? 'Liquidatable' : 'Solvent'}
+                            </span>
+                          </td>
+                          <td>
+                            {isLiquidatable ? (
+                              <button 
+                                onClick={() => handleLiquidate(pos.id)} 
+                                disabled={txLoading}
+                                className="btn btn-danger" 
+                                style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                              >
+                                {txLoading ? <Loader2 className="animate-spin" size={12} /> : null}
+                                Execute Liquidation ($240 Bounty)
+                              </button>
+                            ) : (
+                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Position Healthy</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
                 </tbody>
               </table>
             </div>
