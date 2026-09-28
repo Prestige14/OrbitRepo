@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   TrendingUp, 
   Layers, 
-  Cpu, 
   Sliders,
   ExternalLink,
   ShieldCheck,
@@ -810,9 +809,15 @@ export default function App() {
             display: 'flex', 
             alignItems: 'center', 
             justifyContent: 'center',
-            boxShadow: '0 0 24px rgba(56, 189, 248, 0.2)'
+            boxShadow: '0 0 24px rgba(56, 189, 248, 0.25)',
+            overflow: 'hidden',
+            padding: '4px'
           }}>
-            <Cpu size={26} color="#38bdf8" />
+            <img 
+              src="/orbitrepo-icon.png" 
+              alt="OrbitRepo Logo" 
+              style={{ width: '100%', height: '100%', objectFit: 'contain' }} 
+            />
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -1754,7 +1759,8 @@ export default function App() {
         gap: '14px' 
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span>OrbitRepo Protocol</span>
+          <img src="/orbitrepo-icon.png" alt="OrbitRepo" style={{ width: '20px', height: '20px', objectFit: 'contain' }} />
+          <span style={{ fontWeight: '600', color: 'var(--text-secondary)' }}>OrbitRepo Protocol</span>
           <span>•</span>
           <span>Arbitrum Open House Singapore Online Buildathon</span>
         </div>

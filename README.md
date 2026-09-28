@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.jpg" alt="OrbitRepo Logo" width="680" style="border-radius: 12px; max-width: 100%;" />
+</p>
+
 # OrbitRepo
 
 ### Fixed-Term Repo Protocol for Tokenized Equities with an Arbitrum Stylus Dynamic Risk Engine
