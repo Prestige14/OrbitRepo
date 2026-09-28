@@ -510,34 +510,34 @@ export default function App() {
         const usdcContract = new Contract(addresses.usdc, ERC20_ABI, signer);
 
         // Pre-flight check on-chain position existence & ownership
-        setTxStatusText(`Memvalidasi status Posisi #${id} di smart contract...`);
+        setTxStatusText(`Verifying Position #${id} on Robinhood Chain smart contract...`);
         const onChainPos = await vaultContract.positions(id);
         
         if (onChainPos.borrower === '0x0000000000000000000000000000000000000000') {
-          throw new Error(`Posisi #${id} belum pernah dibuat di blockchain (placeholder data). Silakan buka posisi repo baru di panel kiri terlebih dahulu.`);
+          throw new Error(`Position #${id} does not exist on-chain (placeholder simulation data). Please open a new repo position on the left panel first.`);
         }
         if (onChainPos.borrower.toLowerCase() !== account.toLowerCase()) {
-          throw new Error(`Posisi #${id} bukan milik wallet Anda (${onChainPos.borrower.slice(0, 6)}...${onChainPos.borrower.slice(-4)}). Hanya peminjam asli yang berhak melunasi dan menebus agunan.`);
+          throw new Error(`Position #${id} is not owned by your connected wallet (${onChainPos.borrower.slice(0, 6)}...${onChainPos.borrower.slice(-4)}). Only the original borrower can settle and reclaim collateral.`);
         }
         if (onChainPos.isClosed) {
-          throw new Error(`Posisi #${id} sudah pernah dilunasi atau ditutup sebelumnya.`);
+          throw new Error(`Position #${id} has already been settled or closed.`);
         }
 
         const debtWei = parseUnits(pos.debt.toFixed(6), 6);
         const userUsdcBal = await usdcContract.balanceOf(account);
         if (userUsdcBal < debtWei) {
-          throw new Error(`Saldo USDC Anda tidak mencukupi untuk melunasi posisi #${id}. Dibutuhkan $${pos.debt.toFixed(2)} USDC.`);
+          throw new Error(`Insufficient USDC balance to settle Position #${id}. Required: $${pos.debt.toFixed(2)} USDC.`);
         }
 
-        setTxStatusText(`Step 1/2: Memeriksa approval USDC untuk pelunasan...`);
+        setTxStatusText(`Step 1/2: Checking USDC allowance for repayment...`);
         const allowance = await usdcContract.allowance(account, addresses.repoVault);
         if (allowance < debtWei) {
-          setTxStatusText(`Step 1/2: Menyetujui (Approve) USDC di MetaMask...`);
+          setTxStatusText(`Step 1/2: Approving USDC in MetaMask...`);
           const approveTx = await usdcContract.approve(addresses.repoVault, debtWei);
           await approveTx.wait();
         }
 
-        setTxStatusText(`Step 2/2: Mengonfirmasi pelunasan posisi #${id} di Robinhood Chain...`);
+        setTxStatusText(`Step 2/2: Confirming repayment of Position #${id} on Robinhood Chain...`);
         const tx = await vaultContract.repay(id);
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
@@ -547,9 +547,9 @@ export default function App() {
         console.error('Repay error:', err);
         const msg = err.reason || err.message || 'Repay failed';
         if (msg.includes('0x82b42900') || msg.includes('Unauthorized')) {
-          setTxError('Unauthorized (0x82b42900): Posisi ini belum terdaftar di blockchain atau bukan milik wallet Anda.');
+          setTxError('Unauthorized (0x82b42900): This position is not registered on-chain or not owned by your connected wallet.');
         } else if (msg.includes('0x9e684275') || msg.includes('PositionClosed')) {
-          setTxError('PositionClosed (0x9e684275): Posisi ini sudah dilunasi/ditutup sebelumnya.');
+          setTxError('PositionClosed (0x9e684275): This position has already been settled or closed.');
         } else {
           setTxError(msg);
         }
@@ -587,30 +587,30 @@ export default function App() {
         const usdcContract = new Contract(addresses.usdc, ERC20_ABI, signer);
 
         // Pre-flight check
-        setTxStatusText(`Memeriksa kelayakan likuidasi Posisi #${id} on-chain...`);
+        setTxStatusText(`Verifying liquidation eligibility for Position #${id} on-chain...`);
         const onChainPos = await vaultContract.positions(id);
         if (onChainPos.borrower === '0x0000000000000000000000000000000000000000') {
-          throw new Error(`Posisi #${id} tidak ditemukan di smart contract.`);
+          throw new Error(`Position #${id} was not found on the smart contract.`);
         }
         if (onChainPos.isClosed) {
-          throw new Error(`Posisi #${id} sudah pernah ditutup/dilikuidasi.`);
+          throw new Error(`Position #${id} has already been closed or liquidated.`);
         }
 
         const health = await vaultContract.getPositionHealth(id);
         if (!health.isLiquidatable) {
-          throw new Error(`Posisi #${id} masih sehat (LTV: ${(Number(health.currentLtvBps) / 100).toFixed(1)}%, Batas: ${(Number(health.liquidationThresholdBps) / 100).toFixed(1)}%). Belum dapat dilikuidasi.`);
+          throw new Error(`Position #${id} is healthy (LTV: ${(Number(health.currentLtvBps) / 100).toFixed(1)}%, Threshold: ${(Number(health.liquidationThresholdBps) / 100).toFixed(1)}%). Cannot be liquidated.`);
         }
 
         const debtWei = parseUnits(pos.debt.toFixed(6), 6);
 
-        setTxStatusText(`Menyetujui USDC untuk eksekusi likuidasi keeper...`);
+        setTxStatusText(`Step 1/2: Approving USDC for keeper liquidation...`);
         const allowance = await usdcContract.allowance(account, addresses.repoVault);
         if (allowance < debtWei) {
           const approveTx = await usdcContract.approve(addresses.repoVault, debtWei);
           await approveTx.wait();
         }
 
-        setTxStatusText(`Mengeksekusi likuidasi keeper di Robinhood Chain...`);
+        setTxStatusText(`Step 2/2: Executing keeper liquidation on Robinhood Chain...`);
         const tx = await vaultContract.liquidate(id);
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
@@ -620,9 +620,9 @@ export default function App() {
         console.error('Liquidation error:', err);
         const msg = err.reason || err.message || 'Liquidation failed';
         if (msg.includes('0x6415f959') || msg.includes('PositionNotLiquidatable')) {
-          setTxError('PositionNotLiquidatable (0x6415f959): Posisi masih sehat (LTV belum menembus threshold likuidasi). Geser slider drop harga terlebih dahulu untuk mensimulasikan krisis pasar.');
+          setTxError('PositionNotLiquidatable (0x6415f959): Position is healthy (LTV is below liquidation threshold). Adjust the price drop slider above to simulate market distress first.');
         } else if (msg.includes('0x9e684275') || msg.includes('PositionClosed')) {
-          setTxError('PositionClosed (0x9e684275): Posisi sudah ditutup.');
+          setTxError('PositionClosed (0x9e684275): Position has already been closed.');
         } else {
           setTxError(msg);
         }
@@ -1426,12 +1426,12 @@ export default function App() {
                       <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8125rem' }}>
                         <div style={{ marginBottom: '8px', fontSize: '1.6rem' }}>📦</div>
                         <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                          {executionMode === 'onchain' ? 'Belum Ada Posisi On-Chain Aktif' : 'Tidak Ada Posisi Simulasi'}
+                          {executionMode === 'onchain' ? 'No Active On-Chain Positions' : 'No Active Simulated Positions'}
                         </div>
                         <div style={{ maxWidth: '320px', margin: '0 auto', color: 'var(--text-secondary)', lineHeight: '1.45' }}>
                           {executionMode === 'onchain' 
-                            ? 'Kunci agunan saham di panel kiri lalu klik "Lock Collateral & Execute Repo" untuk meminjam USDC on-chain.' 
-                            : 'Gunakan formulir di sebelah kiri untuk membuka pinjaman simulasi.'}
+                            ? 'Pledge equity collateral on the left panel and click "Lock Collateral & Execute Repo" to draw USDC on-chain.' 
+                            : 'Use the form on the left to initiate a simulated repo loan.'}
                         </div>
                       </div>
                     );
@@ -1652,10 +1652,10 @@ export default function App() {
                       <td colSpan={8} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
                         <div style={{ marginBottom: '8px', fontSize: '1.6rem' }}>🛡️</div>
                         <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                          Belum Ada Posisi Repo yang Diawasi
+                          No Active Repo Positions Monitored
                         </div>
                         <div style={{ maxWidth: '440px', margin: '0 auto', color: 'var(--text-secondary)', lineHeight: '1.45' }}>
-                          Buka posisi pinjaman di tab <strong>Borrower Desk</strong> terlebih dahulu. Setelah posisi dibuat, kembali ke tab ini dan gunakan slider penurunan harga di atas untuk mensimulasikan likuidasi keeper.
+                          Open a repo loan in the <strong>Borrower Desk</strong> tab first. Once active, return to this tab and use the price drop slider above to simulate keeper liquidations.
                         </div>
                       </td>
                     </tr>
