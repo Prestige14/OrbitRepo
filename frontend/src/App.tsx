@@ -463,7 +463,16 @@ export default function App() {
         await fetchOnChainData();
       } catch (err: any) {
         console.error('OpenRepo error:', err);
-        setTxError(err.reason || err.message || 'Transaction failed or rejected');
+        const msg = err.reason || err.message || 'Transaction failed or rejected';
+        if (msg.includes('0x08b9f95b') || msg.includes('OraclePriceStale')) {
+          setTxError('OraclePriceStale (0x08b9f95b): Price feed was outdated. The oracle has been refreshed, please try again.');
+        } else if (msg.includes('0x8622f8e4') || msg.includes('AssetNotWhitelisted')) {
+          setTxError('AssetNotWhitelisted (0x8622f8e4): Selected equity asset is not whitelisted on RepoVault.');
+        } else if (msg.includes('0xbb55fd27') || msg.includes('InsufficientLiquidity')) {
+          setTxError('InsufficientLiquidity (0xbb55fd27): Liquidity pool does not have enough USDC cash reserves to fund this loan.');
+        } else {
+          setTxError(msg);
+        }
       } finally {
         setTxLoading(false);
         setTxStatusText('');
