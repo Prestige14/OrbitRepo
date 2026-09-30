@@ -8,7 +8,10 @@ export const REPO_VAULT_ABI = [
   "function calculateFixedInterest(uint256 principal, uint8 termDays) external pure returns (uint256)",
   "function nextPositionId() external view returns (uint256)",
   "function positions(uint256) external view returns (uint256 id, address borrower, address collateralAsset, uint256 collateralAmount, uint256 borrowedPrincipal, uint256 fixedInterest, uint8 termDays, uint256 openedAt, uint256 maturityAt, uint256 maxLtvBps, bool isClosed)",
-  "function assetConfigs(address) external view returns (bool isWhitelisted, address oracleAddress, uint256 stalenessThreshold)"
+  "function assetConfigs(address) external view returns (bool isWhitelisted, address oracleAddress, uint256 stalenessThreshold)",
+  "event PositionOpened(uint256 indexed positionId, address indexed borrower, address indexed asset, uint256 collateralAmount, uint256 borrowedPrincipal, uint256 fixedInterest, uint8 termDays, uint256 openedAt, uint256 maturityAt, uint256 maxLtvBps)",
+  "event PositionRepaid(uint256 indexed positionId, address indexed borrower, uint256 totalRepaid)",
+  "event PositionLiquidated(uint256 indexed positionId, address indexed borrower, address indexed keeper, uint256 debtCovered, uint256 collateralLiquidated, uint256 bountyPaid)"
 ];
 
 export const LIQUIDITY_POOL_ABI = [

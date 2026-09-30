@@ -19,7 +19,8 @@ import {
   Activity,
   ChevronRight,
   Lock,
-  ArrowUpRight
+  ArrowUpRight,
+  Calendar
 } from 'lucide-react';
 import { 
   BrowserProvider, 
@@ -124,6 +125,7 @@ interface RepoPosition {
   maturityDate: string;
   isClosed?: boolean;
   borrower?: string;
+  closureReason?: 'settled' | 'liquidated';
 }
 
 const MOCK_POSITIONS: RepoPosition[] = [
@@ -135,7 +137,17 @@ const MOCK_POSITIONS: RepoPosition[] = [
     termDays: 30,
     openedPrice: 245.00,
     maxLtv: 59.3,
-    maturityDate: 'Oct 28, 2026'
+    maturityDate: 'Oct 30, 2026'
+  },
+  {
+    id: 2,
+    asset: 'PLTR',
+    collateralAmt: 100,
+    debt: 1717.00,
+    termDays: 7,
+    openedPrice: 36.00,
+    maxLtv: 47.7,
+    maturityDate: 'Oct 7, 2026'
   }
 ];
 
@@ -184,8 +196,11 @@ export default function App() {
   // Stress test multiplier for price feed
   const [priceMultiplier, setPriceMultiplier] = useState<number>(1.0);
 
-  // Active positions (Empty initially in Live On-Chain mode until loaded from blockchain)
+  // Active & Closed History positions
   const [positions, setPositions] = useState<RepoPosition[]>([]);
+  const [historyPositions, setHistoryPositions] = useState<RepoPosition[]>([]);
+  const [positionTab, setPositionTab] = useState<'active' | 'history'>('active');
+  const [riskPositionTab, setRiskPositionTab] = useState<'active' | 'history'>('active');
 
   const asset = SUPPORTED_ASSETS[selectedAsset];
   const currentPrice = asset.price * priceMultiplier;
@@ -272,18 +287,33 @@ export default function App() {
         console.warn('Error reading pool stats:', err);
       }
 
-      // 5. Query active positions from RepoVault
+      // 5. Query active & closed positions from RepoVault
       try {
         const vaultContract = new Contract(addresses.repoVault, REPO_VAULT_ABI, provider);
         const nextId = await vaultContract.nextPositionId();
         const totalPos = Number(nextId);
         const onChainPosList: RepoPosition[] = [];
+        const onChainHistoryList: RepoPosition[] = [];
 
-        const startPos = Math.max(1, totalPos - 25);
+        // Check liquidated events if available
+        const liquidatedIds = new Set<number>();
+        try {
+          const filter = vaultContract.filters.PositionLiquidated();
+          const events = await vaultContract.queryFilter(filter, 0, 'latest');
+          events.forEach((ev: any) => {
+            if (ev.args && ev.args.positionId) {
+              liquidatedIds.add(Number(ev.args.positionId));
+            }
+          });
+        } catch {
+          // ignore event query failure if RPC limits
+        }
+
+        const startPos = Math.max(1, totalPos - 30);
         for (let i = totalPos - 1; i >= startPos; i--) {
           try {
             const p = await vaultContract.positions(i);
-            if (!p.isClosed && p.borrower !== '0x0000000000000000000000000000000000000000') {
+            if (p.borrower !== '0x0000000000000000000000000000000000000000') {
               const sym = Object.keys(SUPPORTED_ASSETS).find(
                 s => SUPPORTED_ASSETS[s].address.toLowerCase() === p.collateralAsset.toLowerCase()
               ) || 'EQUITY';
@@ -297,7 +327,9 @@ export default function App() {
                 year: 'numeric'
               });
 
-              onChainPosList.push({
+              const isLiq = liquidatedIds.has(Number(p.id));
+
+              const posObj: RepoPosition = {
                 id: Number(p.id),
                 asset: sym,
                 collateralAmt: colQty,
@@ -306,8 +338,16 @@ export default function App() {
                 openedPrice: SUPPORTED_ASSETS[sym]?.price || 100,
                 maxLtv: ltvVal,
                 maturityDate: matDate,
-                borrower: p.borrower
-              });
+                borrower: p.borrower,
+                isClosed: p.isClosed,
+                closureReason: isLiq ? 'liquidated' : 'settled'
+              };
+
+              if (!p.isClosed) {
+                onChainPosList.push(posObj);
+              } else {
+                onChainHistoryList.push(posObj);
+              }
             }
           } catch {
             // position read error, skip
@@ -316,6 +356,7 @@ export default function App() {
 
         if (executionMode === 'onchain') {
           setPositions(onChainPosList);
+          setHistoryPositions(onChainHistoryList);
         }
       } catch (err) {
         console.warn('Error reading on-chain positions:', err);
@@ -334,6 +375,7 @@ export default function App() {
         fetchOnChainData();
       } else {
         setPositions([]);
+        setHistoryPositions([]);
       }
     } else {
       if (positions.length === 0) {
@@ -580,6 +622,7 @@ export default function App() {
       [pos.asset]: (prev[pos.asset] || 0) + pos.collateralAmt
     }));
     setPositions(positions.filter(p => p.id !== id));
+    setHistoryPositions(prev => [{ ...pos, isClosed: true, closureReason: 'settled' }, ...prev]);
   };
 
   const handleLiquidate = async (id: number) => {
@@ -648,6 +691,7 @@ export default function App() {
       [pos.asset]: (prev[pos.asset] || 0) + pos.collateralAmt
     }));
     setPositions(positions.filter(p => p.id !== id));
+    setHistoryPositions(prev => [{ ...pos, isClosed: true, closureReason: 'liquidated' }, ...prev]);
   };
 
   const handleDepositLiquidity = async () => {
@@ -1419,16 +1463,95 @@ export default function App() {
               </div>
             </div>
 
-            {/* Your Active Positions */}
+            {/* Your Active Positions & History */}
             <div className="panel">
-              <div className="panel-header">
-                <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>Active Repo Positions</span>
-                <span className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
-                  {positions.filter(p => !p.borrower || (account && p.borrower.toLowerCase() === account.toLowerCase())).length} Active
-                </span>
+              <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    onClick={() => setPositionTab('active')}
+                    style={{
+                      background: positionTab === 'active' ? 'var(--bg-surface-hover)' : 'transparent',
+                      color: positionTab === 'active' ? '#ffffff' : 'var(--text-tertiary)',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '4px 10px',
+                      fontSize: '0.8125rem',
+                      fontWeight: positionTab === 'active' ? '700' : '500',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span>Active Loans</span>
+                    <span className="pill pill-green" style={{ padding: '1px 6px', fontSize: '0.65rem' }}>
+                      {positions.filter(p => !p.borrower || (account && p.borrower.toLowerCase() === account.toLowerCase())).length}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={() => setPositionTab('history')}
+                    style={{
+                      background: positionTab === 'history' ? 'var(--bg-surface-hover)' : 'transparent',
+                      color: positionTab === 'history' ? '#ffffff' : 'var(--text-tertiary)',
+                      border: 'none',
+                      borderRadius: '6px',
+                      padding: '4px 10px',
+                      fontSize: '0.8125rem',
+                      fontWeight: positionTab === 'history' ? '700' : '500',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                  >
+                    <span>Past History</span>
+                    <span className="pill pill-cyan" style={{ padding: '1px 6px', fontSize: '0.65rem' }}>
+                      {historyPositions.filter(p => !p.borrower || (account && p.borrower.toLowerCase() === account.toLowerCase())).length}
+                    </span>
+                  </button>
+                </div>
               </div>
+
               <div className="panel-body" style={{ padding: '0' }}>
                 {(() => {
+                  if (positionTab === 'history') {
+                    const userHistory = historyPositions.filter(p => !p.borrower || (account && p.borrower.toLowerCase() === account.toLowerCase()));
+                    if (userHistory.length === 0) {
+                      return (
+                        <div style={{ padding: '36px 20px', textAlign: 'center', color: 'var(--text-tertiary)', fontSize: '0.8125rem' }}>
+                          <div style={{ marginBottom: '8px', fontSize: '1.6rem' }}>📜</div>
+                          <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                            No Settled or Liquidated History
+                          </div>
+                          <div style={{ maxWidth: '320px', margin: '0 auto', color: 'var(--text-secondary)', lineHeight: '1.45' }}>
+                            Positions that have been settled or liquidated by keepers will be archived here.
+                          </div>
+                        </div>
+                      );
+                    }
+                    return userHistory.map(pos => (
+                      <div key={pos.id} style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)', background: 'rgba(255,255,255,0.01)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
+                          <div>
+                            <div style={{ fontWeight: '700', fontSize: '0.875rem', color: '#ffffff' }}>
+                              Position #{pos.id} • {pos.collateralAmt} {pos.asset}
+                            </div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <Calendar size={11} /> Matured: {pos.maturityDate} ({pos.termDays}D Term)
+                            </div>
+                          </div>
+                          <span className={pos.closureReason === 'liquidated' ? "pill pill-red" : "pill pill-cyan"} style={{ fontSize: '0.7rem' }}>
+                            {pos.closureReason === 'liquidated' ? 'Liquidated by Keeper' : 'Closed / Settled'}
+                          </span>
+                        </div>
+                        <div className="mono" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                          Final Debt: ${pos.debt.toFixed(2)} USDC | Initial Price: ${pos.openedPrice.toFixed(2)}
+                        </div>
+                      </div>
+                    ));
+                  }
+
                   const userPositions = positions.filter(p => !p.borrower || (account && p.borrower.toLowerCase() === account.toLowerCase()));
                   if (userPositions.length === 0) {
                     return (
@@ -1452,10 +1575,21 @@ export default function App() {
 
                     return (
                       <div key={pos.id} style={{ padding: '16px', borderBottom: '1px solid var(--border-subtle)' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                          <span style={{ fontWeight: '700', fontSize: '0.875rem' }}>
-                            Position #{pos.id} • {pos.collateralAmt} {pos.asset}
-                          </span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                          <div>
+                            <div style={{ fontWeight: '800', fontSize: '0.9375rem', color: '#ffffff' }}>
+                              Position #{pos.id} • {pos.collateralAmt} {pos.asset}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
+                              <span className="pill pill-cyan" style={{ fontSize: '0.68rem', padding: '2px 8px' }}>
+                                {pos.termDays}-Day Term
+                              </span>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: '600' }}>
+                                <Calendar size={12} />
+                                Maturity Due: <strong>{pos.maturityDate}</strong>
+                              </span>
+                            </div>
+                          </div>
                           <span className={isLiquidatable ? 'pill pill-red' : 'pill pill-green'}>
                             {isLiquidatable ? 'Liquidatable' : 'Healthy'}
                           </span>
@@ -1640,42 +1774,84 @@ export default function App() {
               </div>
             </div>
 
+            {/* Table Header Controls: Active vs Archive */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => setRiskPositionTab('active')}
+                  style={{
+                    background: riskPositionTab === 'active' ? 'var(--bg-surface-hover)' : 'transparent',
+                    color: riskPositionTab === 'active' ? '#ffffff' : 'var(--text-tertiary)',
+                    border: '1px solid ' + (riskPositionTab === 'active' ? 'var(--border-medium)' : 'transparent'),
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    fontSize: '0.8125rem',
+                    fontWeight: riskPositionTab === 'active' ? '700' : '500',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>Monitored Active</span>
+                  <span className="pill pill-green" style={{ padding: '1px 6px', fontSize: '0.65rem' }}>
+                    {positions.length}
+                  </span>
+                </button>
+
+                <button
+                  onClick={() => setRiskPositionTab('history')}
+                  style={{
+                    background: riskPositionTab === 'history' ? 'var(--bg-surface-hover)' : 'transparent',
+                    color: riskPositionTab === 'history' ? '#ffffff' : 'var(--text-tertiary)',
+                    border: '1px solid ' + (riskPositionTab === 'history' ? 'var(--border-medium)' : 'transparent'),
+                    borderRadius: '6px',
+                    padding: '6px 12px',
+                    fontSize: '0.8125rem',
+                    fontWeight: riskPositionTab === 'history' ? '700' : '500',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  <span>Keeper & Settle Archive</span>
+                  <span className="pill pill-cyan" style={{ padding: '1px 6px', fontSize: '0.65rem' }}>
+                    {historyPositions.length}
+                  </span>
+                </button>
+              </div>
+            </div>
+
             {/* Position Monitoring Table */}
             <div style={{ overflowX: 'auto' }}>
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Position ID</th>
-                    <th>Collateral Asset</th>
-                    <th>Valuation</th>
-                    <th>Debt (USDC)</th>
-                    <th>Live LTV</th>
-                    <th>Maintenance Threshold</th>
-                    <th>Solvency Status</th>
-                    <th>Keeper Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions.length === 0 ? (
+              {riskPositionTab === 'history' ? (
+                <table className="data-table">
+                  <thead>
                     <tr>
-                      <td colSpan={8} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
-                        <div style={{ marginBottom: '8px', fontSize: '1.6rem' }}>🛡️</div>
-                        <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
-                          No Active Repo Positions Monitored
-                        </div>
-                        <div style={{ maxWidth: '440px', margin: '0 auto', color: 'var(--text-secondary)', lineHeight: '1.45' }}>
-                          Open a repo loan in the <strong>Borrower Desk</strong> tab first. Once active, return to this tab and use the price drop slider above to simulate keeper liquidations.
-                        </div>
-                      </td>
+                      <th>Position ID</th>
+                      <th>Collateral Asset</th>
+                      <th>Term & Maturity</th>
+                      <th>Final Debt (USDC)</th>
+                      <th>Initial Price</th>
+                      <th>Lifecycle Status</th>
                     </tr>
-                  ) : (
-                    positions.map(pos => {
-                      const currentVal = pos.collateralAmt * currentPrice;
-                      const currentLtv = (pos.debt / currentVal) * 100;
-                      const threshold = pos.maxLtv + 5.0;
-                      const isLiquidatable = currentLtv > threshold;
-
-                      return (
+                  </thead>
+                  <tbody>
+                    {historyPositions.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
+                          <div style={{ marginBottom: '8px', fontSize: '1.6rem' }}>📜</div>
+                          <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                            No Keeper or Settlement History
+                          </div>
+                          <div style={{ maxWidth: '440px', margin: '0 auto', color: 'var(--text-secondary)', lineHeight: '1.45' }}>
+                            Positions liquidated by keepers or settled by borrowers will be recorded here.
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      historyPositions.map(pos => (
                         <tr key={pos.id}>
                           <td className="mono" style={{ fontWeight: '700' }}>#{pos.id}</td>
                           <td>
@@ -1683,38 +1859,103 @@ export default function App() {
                               {pos.collateralAmt} {pos.asset}
                             </span>
                           </td>
-                          <td className="mono">${currentVal.toFixed(2)}</td>
-                          <td className="mono">${pos.debt.toFixed(2)}</td>
-                          <td className="mono" style={{ fontWeight: '700', color: isLiquidatable ? 'var(--accent-rose)' : '#ffffff' }}>
-                            {currentLtv.toFixed(1)}%
+                          <td className="mono" style={{ fontSize: '0.75rem' }}>
+                            <div style={{ fontWeight: '600', color: 'var(--accent-cyan)' }}>{pos.termDays}-Day Term</div>
+                            <div style={{ color: 'var(--text-tertiary)', fontSize: '0.7rem' }}>Due: {pos.maturityDate}</div>
                           </td>
-                          <td className="mono" style={{ color: 'var(--text-tertiary)' }}>{threshold.toFixed(1)}%</td>
+                          <td className="mono">${pos.debt.toFixed(2)}</td>
+                          <td className="mono">${pos.openedPrice.toFixed(2)}</td>
                           <td>
-                            <span className={isLiquidatable ? 'pill pill-red' : 'pill pill-green'}>
-                              {isLiquidatable ? 'Liquidatable' : 'Solvent'}
+                            <span className={pos.closureReason === 'liquidated' ? 'pill pill-red' : 'pill pill-cyan'}>
+                              {pos.closureReason === 'liquidated' ? 'Liquidated by Keeper' : 'Settled & Reclaimed'}
                             </span>
                           </td>
-                          <td>
-                            {isLiquidatable ? (
-                              <button 
-                                onClick={() => handleLiquidate(pos.id)} 
-                                disabled={txLoading}
-                                className="btn btn-danger" 
-                                style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
-                              >
-                                {txLoading ? <Loader2 className="animate-spin" size={12} /> : null}
-                                Execute Liquidation ($240 Bounty)
-                              </button>
-                            ) : (
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Position Healthy</span>
-                            )}
-                          </td>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Position ID</th>
+                      <th>Collateral Asset</th>
+                      <th>Term & Maturity</th>
+                      <th>Valuation</th>
+                      <th>Debt (USDC)</th>
+                      <th>Live LTV</th>
+                      <th>Maintenance Threshold</th>
+                      <th>Solvency Status</th>
+                      <th>Keeper Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {positions.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--text-tertiary)', fontSize: '0.85rem' }}>
+                          <div style={{ marginBottom: '8px', fontSize: '1.6rem' }}>🛡️</div>
+                          <div style={{ fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>
+                            No Active Repo Positions Monitored
+                          </div>
+                          <div style={{ maxWidth: '440px', margin: '0 auto', color: 'var(--text-secondary)', lineHeight: '1.45' }}>
+                            Open a repo loan in the <strong>Borrower Desk</strong> tab first. Once active, return to this tab and use the price drop slider above to simulate keeper liquidations.
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      positions.map(pos => {
+                        const assetPrice = (SUPPORTED_ASSETS[pos.asset]?.price || pos.openedPrice || 100) * priceMultiplier;
+                        const currentVal = pos.collateralAmt * assetPrice;
+                        const currentLtv = (pos.debt / currentVal) * 100;
+                        const threshold = pos.maxLtv + 5.0;
+                        const isLiquidatable = currentLtv > threshold;
+
+                        return (
+                          <tr key={pos.id}>
+                            <td className="mono" style={{ fontWeight: '700' }}>#{pos.id}</td>
+                            <td>
+                              <span style={{ fontWeight: '700', color: SUPPORTED_ASSETS[pos.asset]?.brandColor || '#ffffff' }}>
+                                {pos.collateralAmt} {pos.asset}
+                              </span>
+                            </td>
+                            <td className="mono" style={{ fontSize: '0.75rem' }}>
+                              <div style={{ fontWeight: '600', color: 'var(--accent-cyan)' }}>{pos.termDays}-Day Term</div>
+                              <div style={{ color: 'var(--text-tertiary)', fontSize: '0.7rem' }}>Due: {pos.maturityDate}</div>
+                            </td>
+                            <td className="mono">${currentVal.toFixed(2)}</td>
+                            <td className="mono">${pos.debt.toFixed(2)}</td>
+                            <td className="mono" style={{ fontWeight: '700', color: isLiquidatable ? 'var(--accent-rose)' : '#ffffff' }}>
+                              {currentLtv.toFixed(1)}%
+                            </td>
+                            <td className="mono" style={{ color: 'var(--text-tertiary)' }}>{threshold.toFixed(1)}%</td>
+                            <td>
+                              <span className={isLiquidatable ? 'pill pill-red' : 'pill pill-green'}>
+                                {isLiquidatable ? 'Liquidatable' : 'Solvent'}
+                              </span>
+                            </td>
+                            <td>
+                              {isLiquidatable ? (
+                                <button 
+                                  onClick={() => handleLiquidate(pos.id)} 
+                                  disabled={txLoading}
+                                  className="btn btn-danger" 
+                                  style={{ fontSize: '0.75rem', padding: '6px 12px', display: 'flex', alignItems: 'center', gap: '4px' }}
+                                >
+                                  {txLoading ? <Loader2 className="animate-spin" size={12} /> : null}
+                                  Execute Liquidation ($240 Bounty)
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Position Healthy</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             {/* Stylus WASM Benchmarking Strip */}
