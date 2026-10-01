@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { 
   BrowserProvider, 
+  JsonRpcProvider,
   Contract, 
   formatUnits, 
   parseUnits, 
@@ -128,7 +129,16 @@ interface RepoPosition {
   closureReason?: 'settled' | 'liquidated';
 }
 
-const MOCK_POSITIONS: RepoPosition[] = [
+export const formatMaturityDate = (timestampSecOrDays: number, isDays = false): string => {
+  const ms = isDays ? Date.now() + timestampSecOrDays * 86400000 : timestampSecOrDays * 1000;
+  return new Date(ms).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  });
+};
+
+const getInitialMockPositions = (): RepoPosition[] => [
   {
     id: 1,
     asset: 'TSLA',
@@ -137,7 +147,7 @@ const MOCK_POSITIONS: RepoPosition[] = [
     termDays: 30,
     openedPrice: 245.00,
     maxLtv: 59.3,
-    maturityDate: 'Oct 30, 2026'
+    maturityDate: formatMaturityDate(30, true)
   },
   {
     id: 2,
@@ -147,9 +157,11 @@ const MOCK_POSITIONS: RepoPosition[] = [
     termDays: 7,
     openedPrice: 36.00,
     maxLtv: 47.7,
-    maturityDate: 'Oct 7, 2026'
+    maturityDate: formatMaturityDate(7, true)
   }
 ];
+
+const MOCK_POSITIONS: RepoPosition[] = getInitialMockPositions();
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'borrow' | 'lend' | 'risk'>('borrow');
@@ -214,11 +226,11 @@ export default function App() {
   const dynamicMaxLtv = parseFloat(rawMaxLtv.toFixed(1));
   const maintenanceLtv = parseFloat((dynamicMaxLtv + 5.0).toFixed(1)); // 500 bps buffer
 
-  // Term fees
-  const termRates: Record<number, { feeBps: number; label: string; rateText: string; tenorDesc: string }> = {
-    1: { feeBps: 3, label: 'Overnight', rateText: '0.03%', tenorDesc: '1-Day Liquidity' },
-    7: { feeBps: 15, label: '7 Days', rateText: '0.15%', tenorDesc: 'Weekly Repo' },
-    30: { feeBps: 60, label: '30 Days', rateText: '0.60%', tenorDesc: 'Monthly Facility' }
+  // Term fees (Borrower APR & fixed term fees)
+  const termRates: Record<number, { feeBps: number; label: string; rateText: string; aprText: string; tenorDesc: string }> = {
+    1: { feeBps: 3, label: 'Overnight', rateText: '0.03%', aprText: '4.20% APR', tenorDesc: '1-Day Liquidity' },
+    7: { feeBps: 15, label: '7 Days', rateText: '0.15%', aprText: '5.13% APR', tenorDesc: 'Weekly Repo' },
+    30: { feeBps: 60, label: '30 Days', rateText: '0.60%', aprText: '7.30% APR', tenorDesc: 'Monthly Facility' }
   };
 
   const collateralQty = parseFloat(collateralInput) || 0;
@@ -234,6 +246,30 @@ export default function App() {
     const provider = new BrowserProvider((window as any).ethereum);
     return await provider.getSigner();
   };
+
+  // Fetch real on-chain pool stats from public RPC even before wallet is connected
+  const fetchGlobalPoolStats = useCallback(async () => {
+    try {
+      const readOnlyProvider = new JsonRpcProvider(addresses.rpcUrl);
+      const poolContract = new Contract(addresses.liquidityPool, LIQUIDITY_POOL_ABI, readOnlyProvider);
+      const [totalAssetsWei, availableLiquidityWei] = await Promise.all([
+        poolContract.totalAssets(),
+        poolContract.availableLiquidity()
+      ]);
+      setPoolStats(prev => ({
+        ...prev,
+        totalAssets: parseFloat(formatUnits(totalAssetsWei, 6)),
+        availableLiquidity: parseFloat(formatUnits(availableLiquidityWei, 6))
+      }));
+    } catch (err) {
+      console.warn('Failed to fetch public pool stats:', err);
+    }
+  }, []);
+
+  // Run on mount so pool reserves match on-chain immediately without jumping on wallet connect
+  useEffect(() => {
+    fetchGlobalPoolStats();
+  }, [fetchGlobalPoolStats]);
 
   // Fetch real on-chain balances and pool stats
   const fetchOnChainData = useCallback(async () => {
@@ -321,11 +357,7 @@ export default function App() {
               const debtTotal = parseFloat(formatUnits(p.borrowedPrincipal + p.fixedInterest, 6));
               const colQty = parseFloat(formatUnits(p.collateralAmount, 18));
               const ltvVal = Number(p.maxLtvBps) / 100;
-              const matDate = new Date(Number(p.maturityAt) * 1000).toLocaleDateString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric'
-              });
+              const matDate = formatMaturityDate(Number(p.maturityAt));
 
               const isLiq = liquidatedIds.has(Number(p.id));
 
@@ -408,10 +440,14 @@ export default function App() {
     }
   }, []);
 
-  // Poll on-chain data
+  // Poll on-chain data periodically (every 4s) when connected
   useEffect(() => {
     if (account && isRobinhoodChain && executionMode === 'onchain') {
       fetchOnChainData();
+      const interval = setInterval(() => {
+        fetchOnChainData();
+      }, 4000);
+      return () => clearInterval(interval);
     }
   }, [account, isRobinhoodChain, executionMode, fetchOnChainData]);
 
@@ -502,7 +538,47 @@ export default function App() {
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
 
+        // Optimistically parse or create position immediately so sidebar updates with 0ms delay
+        let openedId = positions.length + 1;
+        if (receipt.logs) {
+          for (const log of receipt.logs) {
+            try {
+              const parsed = vaultContract.interface.parseLog(log);
+              if (parsed && parsed.name === 'PositionOpened') {
+                openedId = Number(parsed.args.positionId);
+                break;
+              }
+            } catch {
+              // ignore non-matching logs
+            }
+          }
+        }
+
+        const newPos: RepoPosition = {
+          id: openedId,
+          asset: selectedAsset,
+          collateralAmt: collateralQty,
+          debt: parseFloat((maxBorrowAmount + fixedInterest).toFixed(2)),
+          termDays: termDays,
+          openedPrice: currentPrice,
+          maxLtv: dynamicMaxLtv,
+          maturityDate: formatMaturityDate(termDays, true),
+          borrower: account,
+          isClosed: false
+        };
+
+        // Instantly update active positions
+        setPositions(prev => [newPos, ...prev.filter(p => p.id !== newPos.id)]);
+
+        // Instantly update wallet balances optimistically
+        setBalances(prev => ({
+          ...prev,
+          [selectedAsset]: Math.max(0, (prev[selectedAsset] || 0) - collateralQty),
+          USDC: (prev.USDC || 0) + maxBorrowAmount
+        }));
+
         await fetchOnChainData();
+        setTimeout(() => fetchOnChainData(), 1500);
       } catch (err: any) {
         console.error('OpenRepo error:', err);
         const msg = err.reason || err.message || 'Transaction failed or rejected';
@@ -536,7 +612,7 @@ export default function App() {
       termDays: termDays,
       openedPrice: currentPrice,
       maxLtv: dynamicMaxLtv,
-      maturityDate: new Date(Date.now() + termDays * 86400000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      maturityDate: formatMaturityDate(termDays, true)
     };
 
     setPositions([newPosition, ...positions]);
@@ -593,7 +669,17 @@ export default function App() {
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
 
+        // Optimistically update positions & balances immediately
+        setPositions(prev => prev.filter(p => p.id !== id));
+        setHistoryPositions(prev => [{ ...pos, isClosed: true, closureReason: 'settled' }, ...prev.filter(p => p.id !== id)]);
+        setBalances(prev => ({
+          ...prev,
+          [pos.asset]: (prev[pos.asset] || 0) + pos.collateralAmt,
+          USDC: Math.max(0, (prev.USDC || 0) - pos.debt)
+        }));
+
         await fetchOnChainData();
+        setTimeout(() => fetchOnChainData(), 1500);
       } catch (err: any) {
         console.error('Repay error:', err);
         const msg = err.reason || err.message || 'Repay failed';
@@ -667,7 +753,12 @@ export default function App() {
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
 
+        // Optimistically update positions immediately
+        setPositions(prev => prev.filter(p => p.id !== id));
+        setHistoryPositions(prev => [{ ...pos, isClosed: true, closureReason: 'liquidated' }, ...prev.filter(p => p.id !== id)]);
+
         await fetchOnChainData();
+        setTimeout(() => fetchOnChainData(), 1500);
       } catch (err: any) {
         console.error('Liquidation error:', err);
         const msg = err.reason || err.message || 'Liquidation failed';
@@ -721,7 +812,17 @@ export default function App() {
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
 
+        // Optimistically update balance & pool stats
+        setBalances(prev => ({ ...prev, USDC: Math.max(0, (prev.USDC || 0) - amt) }));
+        setPoolStats(prev => ({
+          ...prev,
+          totalAssets: prev.totalAssets + amt,
+          availableLiquidity: prev.availableLiquidity + amt,
+          userShares: prev.userShares + amt
+        }));
+
         await fetchOnChainData();
+        setTimeout(() => fetchOnChainData(), 1500);
       } catch (err: any) {
         console.error('Deposit LP error:', err);
         setTxError(err.reason || err.message || 'Deposit failed');
@@ -759,7 +860,17 @@ export default function App() {
         const receipt = await tx.wait();
         setLastTxHash(receipt.hash);
 
+        // Optimistically update balance & pool stats
+        setBalances(prev => ({ ...prev, USDC: (prev.USDC || 0) + shares }));
+        setPoolStats(prev => ({
+          ...prev,
+          totalAssets: Math.max(0, prev.totalAssets - shares),
+          availableLiquidity: Math.max(0, prev.availableLiquidity - shares),
+          userShares: Math.max(0, prev.userShares - shares)
+        }));
+
         await fetchOnChainData();
+        setTimeout(() => fetchOnChainData(), 1500);
       } catch (err: any) {
         console.error('Withdraw LP error:', err);
         setTxError(err.reason || err.message || 'Withdrawal failed');
@@ -1295,8 +1406,13 @@ export default function App() {
                             {termRates[days].rateText}
                           </span>
                         </div>
-                        <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)', marginTop: '4px' }}>
-                          {termRates[days].tenorDesc}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>
+                            {termRates[days].tenorDesc}
+                          </span>
+                          <span className="mono" style={{ fontSize: '0.68rem', color: active ? 'var(--accent-cyan)' : 'var(--text-tertiary)', fontWeight: '600' }}>
+                            {termRates[days].aprText}
+                          </span>
                         </div>
                       </div>
                     );
@@ -1633,19 +1749,22 @@ export default function App() {
               </p>
 
               {/* APY Tiers */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '22px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px', marginBottom: '8px' }}>
                 <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: '600' }}>Overnight APY</div>
-                  <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--accent-green)', marginTop: '4px' }}>5.40%</div>
+                  <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--accent-green)', marginTop: '4px' }}>3.55%</div>
                 </div>
                 <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: '600' }}>7-Day APY</div>
-                  <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--accent-green)', marginTop: '4px' }}>7.80%</div>
+                  <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--accent-green)', marginTop: '4px' }}>4.35%</div>
                 </div>
                 <div style={{ padding: '16px', borderRadius: '10px', background: 'var(--bg-surface-elevated)', border: '1px solid var(--border-subtle)', textAlign: 'center' }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textTransform: 'uppercase', fontWeight: '600' }}>30-Day APY</div>
-                  <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--accent-green)', marginTop: '4px' }}>7.30%</div>
+                  <div className="mono" style={{ fontSize: '1.45rem', fontWeight: '800', color: 'var(--accent-green)', marginTop: '4px' }}>6.20%</div>
                 </div>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-tertiary)', textAlign: 'center', marginBottom: '22px' }}>
+                Net yield distributed to liquidity providers after 15% protocol safety reserve factor
               </div>
 
               {/* Deposit Input */}
@@ -1972,21 +2091,27 @@ export default function App() {
               gap: '14px'
             }}>
               <div>
-                <div style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-primary)' }}>
-                  Arbitrum Stylus MultiVM Gas Benchmark
+                <div style={{ fontWeight: '700', fontSize: '0.85rem', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Arbitrum Stylus MultiVM Gas Benchmark</span>
+                  <span className="pill pill-green" style={{ fontSize: '0.65rem' }}>86.6% Gas Reduction</span>
                 </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '2px' }}>
-                  Execution Cost of 30-Day Parametric VaR calculation across 30 historical price buffers
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-tertiary)', marginTop: '3px' }}>
+                  30-Day Parametric VaR computed in Rust WASM with Babylonian integer sqrt vs EVM iterative loops.
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)', marginTop: '3px' }}>
+                  ⚡ Robinhood Chain L2 Cost: &lt;$0.0001 per VaR update (Saves ~$4.47/day at Ethereum L1 baseline run-rate)
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-tertiary)' }}>Standard EVM Solidity</div>
                   <div className="mono" style={{ fontSize: '0.9rem', color: 'var(--text-muted)', textDecoration: 'line-through' }}>288,400 gas</div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-tertiary)' }}>L1 Cost Basis</div>
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)' }}>Arbitrum Stylus (Rust WASM)</div>
                   <div className="mono" style={{ fontSize: '1.1rem', fontWeight: '800', color: 'var(--accent-green)' }}>38,500 gas (-86.6%)</div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--accent-green)' }}>&lt;$0.0001 on L2</div>
                 </div>
               </div>
             </div>
