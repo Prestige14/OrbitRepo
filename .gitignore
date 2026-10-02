@@ -37,3 +37,13 @@ Cargo.lock
 # OS
 .DS_Store
 Thumbs.db
+
+# Media / Recordings
+*.mp4
+*.mov
+*.webm
+*.mkv
+*.avi
+*.ts
+video_audit_frames/
+
