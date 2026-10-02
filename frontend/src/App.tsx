@@ -1869,13 +1869,27 @@ export default function App() {
           <div className="panel-body">
             {/* Scenario buttons */}
             <div style={{ marginBottom: '26px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
-                  Market Shock Scenarios ({selectedAsset}):
-                </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)', fontWeight: '600' }}>
+                    Target Stock to Stress Test:
+                  </span>
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    {Object.keys(SUPPORTED_ASSETS).map(sym => (
+                      <button
+                        key={sym}
+                        onClick={() => setSelectedAsset(sym)}
+                        className={`btn ${selectedAsset === sym ? 'btn-primary' : 'btn-secondary'}`}
+                        style={{ padding: '3px 10px', fontSize: '0.75rem', fontWeight: selectedAsset === sym ? '700' : '500' }}
+                      >
+                        {sym}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {executionMode === 'onchain' && account && (
                   <span style={{ fontSize: '0.72rem', color: 'var(--accent-cyan)' }}>
-                    On-chain updates trigger real MockPriceOracle.setPrice()
+                    On-chain oracle updates trigger real MockPriceOracle.setPrice() for <strong>{selectedAsset}</strong>
                   </span>
                 )}
               </div>
@@ -1891,6 +1905,9 @@ export default function App() {
                 </button>
                 <button onClick={() => handlePushOraclePriceDrop(0.45)} className={`btn ${priceMultiplier === 0.55 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.78rem' }}>
                   Black Swan Drop (-45%)
+                </button>
+                <button onClick={() => handlePushOraclePriceDrop(0.60)} className={`btn ${priceMultiplier === 0.40 ? 'btn-primary' : 'btn-secondary'}`} style={{ fontSize: '0.78rem' }}>
+                  Severe Crash (-60%)
                 </button>
               </div>
             </div>
@@ -2026,7 +2043,9 @@ export default function App() {
                       </tr>
                     ) : (
                       positions.map(pos => {
-                        const assetPrice = (SUPPORTED_ASSETS[pos.asset]?.price || pos.openedPrice || 100) * priceMultiplier;
+                        const isTargetShocked = pos.asset === selectedAsset;
+                        const assetMultiplier = isTargetShocked ? priceMultiplier : 1.0;
+                        const assetPrice = (SUPPORTED_ASSETS[pos.asset]?.price || pos.openedPrice || 100) * assetMultiplier;
                         const currentVal = pos.collateralAmt * assetPrice;
                         const currentLtv = (pos.debt / currentVal) * 100;
                         const threshold = pos.maxLtv + 5.0;
@@ -2036,7 +2055,7 @@ export default function App() {
                           <tr key={pos.id}>
                             <td className="mono" style={{ fontWeight: '700' }}>#{pos.id}</td>
                             <td>
-                              <span style={{ fontWeight: '700', color: SUPPORTED_ASSETS[pos.asset]?.brandColor || '#ffffff' }}>
+                              <span style={{ fontWeight: '700', color: '#ffffff' }}>
                                 {pos.collateralAmt} {pos.asset}
                               </span>
                             </td>
