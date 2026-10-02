@@ -1686,8 +1686,7 @@ export default function App() {
                   }
                   return userPositions.map(pos => {
                     const assetBasePrice = SUPPORTED_ASSETS[pos.asset]?.price || pos.openedPrice || 100;
-                    const assetCurrentPrice = assetBasePrice * priceMultiplier;
-                    const currentVal = pos.collateralAmt * assetCurrentPrice;
+                    const currentVal = pos.collateralAmt * assetBasePrice;
                     const currentLtv = (pos.debt / currentVal) * 100;
                     const isLiquidatable = currentLtv > (pos.maxLtv + 5.0);
 
