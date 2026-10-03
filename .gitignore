@@ -46,4 +46,6 @@ Thumbs.db
 *.avi
 *.ts
 video_audit_frames/
+video_audit_new/
+scratch/
 
